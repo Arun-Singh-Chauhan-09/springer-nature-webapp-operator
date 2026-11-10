@@ -11,7 +11,7 @@ permissions:
 jobs:
   unit:
     name: Lint & unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -28,7 +28,7 @@ jobs:
 
   manifests:
     name: Validate manifests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: kubeconform
@@ -38,7 +38,7 @@ jobs:
 
   e2e:
     name: End-to-end on kind + drills
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [unit, manifests]
     steps:
       - uses: actions/checkout@v5
