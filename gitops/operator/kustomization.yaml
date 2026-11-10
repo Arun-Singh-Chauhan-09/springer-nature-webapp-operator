@@ -1,0 +1,11 @@
+# What ArgoCD deploys for the operator: the base manifests from config/operator,
+# with the image swapped from the local dev tag to the one CI published to GHCR.
+# Promote a new build with: make pin-image (pins to the current commit's sha-<short> tag).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../config/operator
+images:
+  - name: webapp-operator
+    newName: ghcr.io/arun-singh-chauhan-09/webapp-operator
+    newTag: main

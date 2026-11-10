@@ -67,6 +67,36 @@ kubectl -n demo describe webapp podinfo                   # conditions + events
 make metrics                                              # webapp_ready, webapp_phase, ...
 ```
 
+## GitOps mode (Terraform + ArgoCD)
+
+The same platform, but nothing is applied by hand. Terraform builds the cluster and
+installs ArgoCD plus one root Application; ArgoCD pulls everything else from this repo.
+
+```
+terraform (infra/envs/kind)
+  ├─ kind cluster
+  └─ module platform-bootstrap ── ArgoCD (Helm) + root Application "platform-root"
+                                        │  app-of-apps: gitops/apps/
+                                        ├─ wave -1  webapp-crds       config/crd
+                                        ├─ wave  0  webapp-operator   gitops/operator (image from GHCR)
+                                        └─ wave  1  webapp-workloads  apps/*.yaml
+```
+
+```bash
+make gitops-up       # terraform apply, then wait until ArgoCD reports every wave Healthy
+make gitops-status   # ArgoCD Applications (sync + health) and WebApps
+make argocd-ui       # admin password + UI on http://localhost:8080
+make gitops-drills   # D1 self-heal + D5 GitOps drift
+make gitops-down     # terraform destroy
+```
+
+Design choices:
+
+- **Terraform stops at the bootstrap.** It owns the cluster, ArgoCD and the root app only. Workloads are owned by Git, so there is one source of truth per layer and no Terraform/ArgoCD fight over the same objects.
+- **One reusable module.** `infra/modules/platform-bootstrap` is shared by every environment; `infra/envs/kind` today, `infra/envs/eks` in Phase 5.
+- **Sync waves that actually wait.** ArgoCD no longer health-checks `Application` resources, so the module adds a Lua health check for them, plus one for `WebApp` (Ready → Healthy, Degraded → Degraded). A broken release shows up red in the ArgoCD UI, not only in `kubectl`.
+- **Immutable image promotion.** CI publishes `ghcr.io/arun-singh-chauhan-09/webapp-operator:sha-<commit>` on every push to `main`; `make pin-image` pins `gitops/operator/kustomization.yaml` to that tag, and the Git commit is the deployment. Rollback = `git revert`.
+
 ## Failure drills
 
 | Drill | What happens | Expected |
@@ -75,7 +105,9 @@ make metrics                                              # webapp_ready, webapp
 | D2 bad release | Image changed to a tag that does not exist | WebApp `Degraded` with reason `ImagePullBackOff`, old pods keep serving; rollback → Ready |
 | D4 operator down | Operator scaled to 0, Deployment deleted | Nothing heals while it's down (proves the operator is the healer); recovers on restart |
 
-D3 (database restore) and D5 (drift → ArgoCD revert) come with later phases. All drills also run in CI on a kind cluster.
+| D5 GitOps drift | `kubectl patch` the WebApp to 5 replicas by hand | ArgoCD selfHeal reverts it to the Git value; WebApp back to Ready |
+
+D1, D2 and D4 run against `make up`; D1 and D5 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D3 (database restore) comes with Phase 4. D1/D2/D4 also run in CI on a kind cluster.
 
 ## Repository layout
 
@@ -85,17 +117,21 @@ internal/controller/    reconciler, platform defaults, metrics, unit tests
 cmd/                    manager entrypoint
 config/crd/             CRD with OpenAPI + CEL validation and printer columns
 config/operator/        namespace, RBAC (least privilege), operator Deployment, metrics Service
+gitops/apps/            ArgoCD app-of-apps: child Applications with sync waves
+gitops/operator/        kustomize overlay: operator image pinned to a GHCR sha tag
+infra/modules/          Terraform module platform-bootstrap (ArgoCD + root app)
+infra/envs/kind/        Terraform env: kind cluster + bootstrap
 apps/                   developer-side WebApps
 drills/                 failure drill scripts
 hack/                   kind config
-.github/workflows/      CI: gofmt, vet, tests, kubeconform, kind e2e + drills
+.github/workflows/      CI: gofmt, vet, tests, kubeconform, terraform validate, GHCR image, kind e2e + drills
 docs/architecture.md    target architecture and design decisions
 ROADMAP.md              phases and feedback backlog
 ```
 
 ## Roadmap
 
-Phase 1 (this) is the operator core. Next: Terraform + ArgoCD GitOps, the Grafana/Loki/Prometheus/Alertmanager stack, CloudNativePG + an admission webhook based on my MEng thesis on the security of Kubernetes manifests, and EKS. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
+Phases 1 (operator core) and 2 (Terraform + ArgoCD GitOps) are done. Next: the Grafana/Loki/Prometheus/Alertmanager stack, CloudNativePG + an admission webhook based on my MEng thesis on the security of Kubernetes manifests, and EKS. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Author
 

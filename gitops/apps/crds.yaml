@@ -1,0 +1,22 @@
+# Wave -1: the WebApp CRD must exist before anything that uses it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: webapp-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Arun-Singh-Chauhan-09/springer-nature-webapp-operator.git
+    targetRevision: main
+    path: config/crd
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - ServerSideApply=true

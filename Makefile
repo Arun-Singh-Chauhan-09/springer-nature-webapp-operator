@@ -31,7 +31,7 @@ deploy: build ## Build, load and deploy the operator + CRD
 	kind load docker-image $(IMG) --name $(CLUSTER)
 	$(KUBECTL) apply -f config/crd/
 	$(KUBECTL) wait --for=condition=Established crd/webapps.platform.example.com --timeout=60s
-	$(KUBECTL) apply -f config/operator/
+	$(KUBECTL) apply -k config/operator/
 	$(KUBECTL) -n webapp-system rollout restart deployment/webapp-operator
 	$(KUBECTL) -n webapp-system rollout status deployment/webapp-operator --timeout=120s
 
@@ -54,6 +54,46 @@ metrics: ## Print the operator's webapp_* metrics
 	$(KUBECTL) -n webapp-system port-forward svc/webapp-operator-metrics 18080:8080 >/dev/null 2>&1 & \
 	PF=$$!; sleep 2; curl -s localhost:18080/metrics | grep -E '^(webapp_|controller_runtime_reconcile_total)'; kill $$PF
 
+##@ GitOps (Terraform + ArgoCD)
+GITOPS_CLUSTER ?= webapp-gitops
+GITOPS_KCTX    := kind-$(GITOPS_CLUSTER)
+GK             := kubectl --context $(GITOPS_KCTX)
+TF_DIR         := infra/envs/kind
+TF             ?= terraform
+TF_IMG         ?= hashicorp/terraform:1.9
+PIN_SHA        ?= $(shell git rev-parse --short=7 HEAD)
+
+gitops-up: ## Terraform creates kind + ArgoCD; ArgoCD deploys CRD -> operator -> apps from Git
+	$(TF) -chdir=$(TF_DIR) init -input=false
+	$(TF) -chdir=$(TF_DIR) apply -input=false -auto-approve -var cluster_name=$(GITOPS_CLUSTER)
+	@echo "Waiting for ArgoCD to sync waves: crds -> operator -> workloads ..."
+	@for i in $$(seq 1 60); do $(GK) -n argocd get application webapp-workloads >/dev/null 2>&1 && break; sleep 5; done
+	$(GK) -n argocd wait application/webapp-workloads --for=jsonpath='{.status.health.status}'=Healthy --timeout=600s
+	$(GK) -n demo wait webapp/podinfo --for=condition=Ready --timeout=300s
+	@$(MAKE) --no-print-directory gitops-status
+
+gitops-status: ## Show ArgoCD Applications (sync + health) and the WebApps
+	$(GK) -n argocd get applications.argoproj.io
+	$(GK) get webapp -A
+
+argocd-ui: ## Print the admin password and port-forward the ArgoCD UI to localhost:8080
+	@echo "ArgoCD UI: http://localhost:8080  user: admin  password: $$($(GK) -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
+	$(GK) -n argocd port-forward svc/argocd-server 8080:80
+
+gitops-drills: ## D1 self-heal + D5 GitOps drift on the GitOps cluster
+	KCTX=$(GITOPS_KCTX) DRILLS="d1-self-heal.sh d5-gitops-drift.sh" bash ./drills/run-all.sh
+
+pin-image: ## Pin the GitOps operator image to a CI-built commit (PIN_SHA=<7-char sha>, default HEAD)
+	sed -i 's/^\(\s*newTag:\).*/\1 sha-$(PIN_SHA)/' gitops/operator/kustomization.yaml
+	@grep newTag gitops/operator/kustomization.yaml
+
+tf-check: ## terraform fmt + validate (in a container, no local install needed)
+	docker run --rm --user $$(id -u):$$(id -g) -e TF_DATA_DIR=/tmp/tf -e HOME=/tmp -v "$(CURDIR)":/w -w /w --entrypoint sh $(TF_IMG) -c \
+	  "terraform fmt -check -recursive infra && cd $(TF_DIR) && terraform init -backend=false -input=false >/dev/null && terraform validate"
+
+gitops-down: ## Destroy the GitOps cluster with Terraform
+	$(TF) -chdir=$(TF_DIR) destroy -input=false -auto-approve -var cluster_name=$(GITOPS_CLUSTER)
+
 ##@ Drills
 drill-d1: ## D1 self-heal: delete the Deployment
 	KCTX=$(KCTX) bash ./drills/d1-self-heal.sh
@@ -61,6 +101,8 @@ drill-d2: ## D2 bad release: push a broken image, then roll back
 	KCTX=$(KCTX) bash ./drills/d2-bad-release.sh
 drill-d4: ## D4 operator down: prove the operator is what heals
 	KCTX=$(KCTX) bash ./drills/d4-operator-down.sh
+drill-d5: ## D5 GitOps drift (GitOps cluster only)
+	KCTX=$(GITOPS_KCTX) bash ./drills/d5-gitops-drift.sh
 drill-all: ## Run all drills and print a PASS/FAIL report
 	KCTX=$(KCTX) bash ./drills/run-all.sh
 
@@ -68,4 +110,4 @@ drill-all: ## Run all drills and print a PASS/FAIL report
 down: ## Delete the kind cluster
 	kind delete cluster --name $(CLUSTER)
 
-.PHONY: help tidy test build cluster deploy sample up status logs metrics drill-d1 drill-d2 drill-d4 drill-all down
+.PHONY: help tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills pin-image tf-check gitops-down drill-d1 drill-d2 drill-d4 drill-d5 drill-all down

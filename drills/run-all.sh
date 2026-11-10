@@ -3,7 +3,8 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-drills=(d1-self-heal.sh d2-bad-release.sh d4-operator-down.sh)
+# DRILLS overrides the set, e.g. the GitOps cluster runs D1 + D5.
+read -ra drills <<< "${DRILLS:-d1-self-heal.sh d2-bad-release.sh d4-operator-down.sh}"
 declare -A result
 failed=0
 

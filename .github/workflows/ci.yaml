@@ -34,7 +34,40 @@ jobs:
       - name: kubeconform
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
-          ./kubeconform -strict -summary -ignore-missing-schemas config/ apps/
+          ./kubeconform -strict -summary -ignore-missing-schemas config/ apps/ gitops/
+
+  terraform:
+    name: Terraform fmt + validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: terraform fmt + validate (kind env + bootstrap module)
+        run: make tf-check
+
+  image:
+    name: Publish operator image (GHCR)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [unit, manifests]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and push ghcr.io/<owner>/webapp-operator:sha-<short> and :main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/webapp-operator"
+          SHORT="${GITHUB_SHA::7}"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build \
+            --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
+            --label org.opencontainers.image.revision="${GITHUB_SHA}" \
+            -t "$IMAGE:sha-$SHORT" -t "$IMAGE:main" .
+          docker push "$IMAGE:sha-$SHORT"
+          docker push "$IMAGE:main"
+          echo "Published $IMAGE:sha-$SHORT" >> "$GITHUB_STEP_SUMMARY"
 
   e2e:
     name: End-to-end on kind + drills

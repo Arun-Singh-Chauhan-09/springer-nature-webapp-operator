@@ -1,0 +1,21 @@
+# Wave 0: the operator (namespace, RBAC, Deployment), image pinned in gitops/operator.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: webapp-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Arun-Singh-Chauhan-09/springer-nature-webapp-operator.git
+    targetRevision: main
+    path: gitops/operator
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: webapp-system
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
