@@ -1,5 +1,7 @@
 # webapp-operator
 
+[![ci](https://github.com/Arun-Singh-Chauhan-09/springer-nature-webapp-operator/actions/workflows/ci.yaml/badge.svg)](https://github.com/Arun-Singh-Chauhan-09/springer-nature-webapp-operator/actions/workflows/ci.yaml)
+
 > Personal portfolio project built for a Springer Nature Platform Engineer application. Not affiliated with or endorsed by Springer Nature.
 
 
