@@ -6,7 +6,7 @@ Built in phases. Every phase ends in a working, demoable state.
 |---|---|---|
 | 1 | Go operator: `WebApp` CRD with CEL validation, Deployment + Service children, platform defaults (limits, probes, non-root, labels), status conditions, Prometheus metrics, unit tests, kind setup, drills D1/D2/D4, CI with kind e2e | ✅ done |
 | 2 | Terraform (`infra/envs/kind`, shared `modules/platform-bootstrap`) + ArgoCD app-of-apps with sync waves; drill D5 (drift → ArgoCD revert) | ✅ done (kind) |
-| 3 | Observability: kube-prometheus-stack, Loki, Grafana "Platform Health" dashboard, Alertmanager rules (`WebAppNotReady`, `OperatorDown`, `ReconcileErrorsHigh`); D2/D4 extended to assert alerts fire | planned |
+| 3 | Observability: kube-prometheus-stack, Loki, Grafana "Platform Health" dashboard, Alertmanager rules (`WebAppNotReady`, `OperatorDown`, `ReconcileErrorsHigh`); alert drill D6 asserts they reach Alertmanager | ✅ done (kind) |
 | 4 | `needsDatabase` → CloudNativePG Postgres cluster + finalizer; validating/mutating admission webhook with the security checks from my MEng thesis; drill D3 (DB restore) | planned |
 | 5 | `infra/envs/eks` (VPC + EKS + EBS CSI) validated in CI with tflint/checkov; one real EKS run; recorded demo | planned |
 

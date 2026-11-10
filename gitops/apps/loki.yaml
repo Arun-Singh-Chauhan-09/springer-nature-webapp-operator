@@ -1,0 +1,48 @@
+# Wave -2: log storage. Single-binary Loki on the local filesystem.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: loki
+    targetRevision: 6.38.0
+    helm:
+      valuesObject:
+        deploymentMode: SingleBinary
+        loki:
+          auth_enabled: false
+          commonConfig: {replication_factor: 1}
+          storage: {type: filesystem}
+          schemaConfig:
+            configs:
+              - from: "2024-01-01"
+                store: tsdb
+                object_store: filesystem
+                schema: v13
+                index: {prefix: index_, period: 24h}
+        singleBinary:
+          replicas: 1
+          persistence: {size: 2Gi}
+        read: {replicas: 0}
+        write: {replicas: 0}
+        backend: {replicas: 0}
+        gateway: {enabled: false}
+        chunksCache: {enabled: false}
+        resultsCache: {enabled: false}
+        lokiCanary: {enabled: false}
+        test: {enabled: false}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true

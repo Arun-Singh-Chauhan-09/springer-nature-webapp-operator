@@ -34,7 +34,7 @@ jobs:
       - name: kubeconform
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
-          ./kubeconform -strict -summary -ignore-missing-schemas config/ apps/ gitops/
+          ./kubeconform -strict -summary -ignore-missing-schemas -ignore-filename-pattern '.*\.json$' config/ apps/ gitops/
 
   terraform:
     name: Terraform fmt + validate

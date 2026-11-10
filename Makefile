@@ -66,9 +66,9 @@ PIN_SHA        ?= $(shell git rev-parse --short=7 HEAD)
 gitops-up: ## Terraform creates kind + ArgoCD; ArgoCD deploys CRD -> operator -> apps from Git
 	$(TF) -chdir=$(TF_DIR) init -input=false
 	$(TF) -chdir=$(TF_DIR) apply -input=false -auto-approve -var cluster_name=$(GITOPS_CLUSTER)
-	@echo "Waiting for ArgoCD to sync waves: crds -> operator -> workloads ..."
+	@echo "Waiting for ArgoCD to sync waves: monitoring/loki -> alloy/crds -> operator -> workloads ..."
 	@for i in $$(seq 1 60); do $(GK) -n argocd get application webapp-workloads >/dev/null 2>&1 && break; sleep 5; done
-	$(GK) -n argocd wait application/webapp-workloads --for=jsonpath='{.status.health.status}'=Healthy --timeout=600s
+	$(GK) -n argocd wait application/webapp-workloads --for=jsonpath='{.status.health.status}'=Healthy --timeout=900s
 	$(GK) -n demo wait webapp/podinfo --for=condition=Ready --timeout=300s
 	@$(MAKE) --no-print-directory gitops-status
 
@@ -80,8 +80,16 @@ argocd-ui: ## Print the admin password and port-forward the ArgoCD UI to localho
 	@echo "ArgoCD UI: http://localhost:8080  user: admin  password: $$($(GK) -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
 	$(GK) -n argocd port-forward svc/argocd-server 8080:80
 
-gitops-drills: ## D1 self-heal + D5 GitOps drift on the GitOps cluster
-	KCTX=$(GITOPS_KCTX) DRILLS="d1-self-heal.sh d5-gitops-drift.sh" bash ./drills/run-all.sh
+gitops-drills: ## D1 self-heal + D5 GitOps drift + D6 alerting on the GitOps cluster (~6 min)
+	KCTX=$(GITOPS_KCTX) DRILLS="d1-self-heal.sh d5-gitops-drift.sh d6-alerts.sh" bash ./drills/run-all.sh
+
+grafana-ui: ## Grafana on http://localhost:3000 (admin/admin), dashboard "Platform Health"
+	@echo "Grafana: http://localhost:3000  user: admin  password: admin  -> Dashboards -> Platform Health"
+	$(GK) -n monitoring port-forward svc/grafana 3000:80
+
+alerts: ## List alerts currently active in Alertmanager
+	@$(GK) get --raw /api/v1/namespaces/monitoring/services/kps-alertmanager:9093/proxy/api/v2/alerts \
+	  | jq -r '.[] | [.labels.alertname, .labels.severity, .status.state, (.annotations.summary // "")] | @tsv' | column -t -s $$'\t'
 
 pin-image: ## Pin the GitOps operator image to a CI-built commit (PIN_SHA=<7-char sha>, default HEAD)
 	sed -i 's/^\(\s*newTag:\).*/\1 sha-$(PIN_SHA)/' gitops/operator/kustomization.yaml
@@ -103,6 +111,8 @@ drill-d4: ## D4 operator down: prove the operator is what heals
 	KCTX=$(KCTX) bash ./drills/d4-operator-down.sh
 drill-d5: ## D5 GitOps drift (GitOps cluster only)
 	KCTX=$(GITOPS_KCTX) bash ./drills/d5-gitops-drift.sh
+drill-d6: ## D6 alerting: WebAppNotReady + OperatorDown fire and resolve (GitOps cluster only, ~5 min)
+	KCTX=$(GITOPS_KCTX) bash ./drills/d6-alerts.sh
 drill-all: ## Run all drills and print a PASS/FAIL report
 	KCTX=$(KCTX) bash ./drills/run-all.sh
 
@@ -110,4 +120,4 @@ drill-all: ## Run all drills and print a PASS/FAIL report
 down: ## Delete the kind cluster
 	kind delete cluster --name $(CLUSTER)
 
-.PHONY: help tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills pin-image tf-check gitops-down drill-d1 drill-d2 drill-d4 drill-d5 drill-all down
+.PHONY: help tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills grafana-ui alerts pin-image tf-check gitops-down drill-d1 drill-d2 drill-d4 drill-d5 drill-d6 drill-all down

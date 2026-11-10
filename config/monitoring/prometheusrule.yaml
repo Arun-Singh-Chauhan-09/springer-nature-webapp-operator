@@ -1,0 +1,41 @@
+# Platform SLO-style alerts. Each one has a drill (D6) that proves it fires.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: webapp-platform
+  namespace: webapp-system
+  labels:
+    app.kubernetes.io/name: webapp-operator
+spec:
+  groups:
+    - name: webapp-platform
+      rules:
+        - alert: WebAppNotReady
+          expr: webapp_ready == 0
+          for: 1m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "WebApp {{ $labels.namespace }}/{{ $labels.name }} is not Ready"
+            description: "Check the reason with: kubectl -n {{ $labels.namespace }} describe webapp {{ $labels.name }}"
+
+        - alert: OperatorDown
+          expr: absent(up{job="webapp-operator-metrics"} == 1)
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "webapp-operator is down: WebApps are no longer reconciled or healed"
+            description: "Running apps keep serving, but drift and failures are not repaired until it is back."
+
+        - alert: ReconcileErrorsHigh
+          expr: sum(rate(controller_runtime_reconcile_errors_total{controller="webapp"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "webapp-operator reconcile errors above 0.05/s for 5 minutes"
+            description: "Look at: kubectl -n webapp-system logs deploy/webapp-operator"

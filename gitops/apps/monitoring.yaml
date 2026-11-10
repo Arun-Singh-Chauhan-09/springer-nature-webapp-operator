@@ -1,0 +1,69 @@
+# Wave -2: metrics + alerting stack. Must exist before the operator app, which
+# ships a ServiceMonitor and PrometheusRule (CRDs installed by this chart).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 86.0.0
+    helm:
+      valuesObject:
+        fullnameOverride: kps
+        # Control-plane components are not scrapeable on kind; disabling them
+        # avoids permanently firing "target down" alerts that teach people to ignore alerts.
+        kubeEtcd: {enabled: false}
+        kubeScheduler: {enabled: false}
+        kubeControllerManager: {enabled: false}
+        kubeProxy: {enabled: false}
+        prometheusOperator:
+          # The admission webhook's caBundle is patched at runtime, which makes
+          # ArgoCD report OutOfSync forever. Not needed for a local platform.
+          admissionWebhooks: {enabled: false}
+          tls: {enabled: false}
+        prometheus:
+          prometheusSpec:
+            # Pick up ServiceMonitors/PrometheusRules from every namespace, not only this release.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            scrapeInterval: 15s
+            evaluationInterval: 15s
+            retention: 2d
+            resources:
+              requests: {cpu: 100m, memory: 400Mi}
+        alertmanager:
+          alertmanagerSpec:
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+        grafana:
+          fullnameOverride: grafana
+          adminPassword: admin   # local kind cluster only
+          defaultDashboardsTimezone: browser
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              searchNamespace: ALL
+          additionalDataSources:
+            - name: Loki
+              uid: loki
+              type: loki
+              access: proxy
+              url: http://loki.logging.svc:3100
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true   # the Prometheus CRDs are too large for client-side apply

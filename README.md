@@ -77,8 +77,11 @@ terraform (infra/envs/kind)
   ├─ kind cluster
   └─ module platform-bootstrap ── ArgoCD (Helm) + root Application "platform-root"
                                         │  app-of-apps: gitops/apps/
+                                        ├─ wave -2  monitoring        kube-prometheus-stack (Prometheus, Alertmanager, Grafana)
+                                        ├─ wave -2  loki              Loki single binary
+                                        ├─ wave -1  alloy             Grafana Alloy: pod logs -> Loki
                                         ├─ wave -1  webapp-crds       config/crd
-                                        ├─ wave  0  webapp-operator   gitops/operator (image from GHCR)
+                                        ├─ wave  0  webapp-operator   gitops/operator: operator + ServiceMonitor, alerts, dashboard
                                         └─ wave  1  webapp-workloads  apps/*.yaml
 ```
 
@@ -86,7 +89,9 @@ terraform (infra/envs/kind)
 make gitops-up       # terraform apply, then wait until ArgoCD reports every wave Healthy
 make gitops-status   # ArgoCD Applications (sync + health) and WebApps
 make argocd-ui       # admin password + UI on http://localhost:8080
-make gitops-drills   # D1 self-heal + D5 GitOps drift
+make gitops-drills   # D1 self-heal + D5 GitOps drift + D6 alerting
+make grafana-ui      # Grafana on http://localhost:3000, dashboard "Platform Health"
+make alerts          # alerts currently active in Alertmanager
 make gitops-down     # terraform destroy
 ```
 
@@ -97,6 +102,21 @@ Design choices:
 - **Sync waves that actually wait.** ArgoCD no longer health-checks `Application` resources, so the module adds a Lua health check for them, plus one for `WebApp` (Ready → Healthy, Degraded → Degraded). A broken release shows up red in the ArgoCD UI, not only in `kubectl`.
 - **Immutable image promotion.** CI publishes `ghcr.io/arun-singh-chauhan-09/webapp-operator:sha-<commit>` on every push to `main`; `make pin-image` pins `gitops/operator/kustomization.yaml` to that tag, and the Git commit is the deployment. Rollback = `git revert`.
 
+## Observability
+
+The platform team owns the monitoring of the platform, so it ships with the operator
+(`config/monitoring/`) and is deployed by ArgoCD together with it.
+
+| Signal | How |
+|---|---|
+| Metrics | ServiceMonitor scrapes the operator: `webapp_ready`, `webapp_phase`, `webapp_replicas`, `controller_runtime_reconcile_*` |
+| Alerts | `WebAppNotReady` (1m), `OperatorDown` (1m), `ReconcileErrorsHigh` (5m), each with a runbook hint in the description |
+| Logs | Grafana Alloy reads pod logs through the Kubernetes API (no hostPath) and pushes them to Loki |
+| Dashboard | Grafana "Platform Health": WebApps ready/not ready, operator up, firing alerts, desired vs ready replicas, phase per app, reconcile rate and p95 latency, operator + app logs |
+
+Alerts are only trusted if they are tested: drill D6 breaks a release and stops the operator,
+and asserts that each alert reaches Alertmanager and resolves again.
+
 ## Failure drills
 
 | Drill | What happens | Expected |
@@ -106,8 +126,9 @@ Design choices:
 | D4 operator down | Operator scaled to 0, Deployment deleted | Nothing heals while it's down (proves the operator is the healer); recovers on restart |
 
 | D5 GitOps drift | `kubectl patch` the WebApp to 5 replicas by hand | ArgoCD selfHeal reverts it to the Git value; WebApp back to Ready |
+| D6 alerting | ArgoCD auto-sync paused; bad image, then operator scaled to 0 | `WebAppNotReady` and `OperatorDown` reach Alertmanager, then resolve after recovery; auto-sync restored |
 
-D1, D2 and D4 run against `make up`; D1 and D5 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D3 (database restore) comes with Phase 4. D1/D2/D4 also run in CI on a kind cluster.
+D1, D2 and D4 run against `make up`; D1, D5 and D6 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D3 (database restore) comes with Phase 4. D1/D2/D4 also run in CI on a kind cluster.
 
 ## Repository layout
 
@@ -117,6 +138,7 @@ internal/controller/    reconciler, platform defaults, metrics, unit tests
 cmd/                    manager entrypoint
 config/crd/             CRD with OpenAPI + CEL validation and printer columns
 config/operator/        namespace, RBAC (least privilege), operator Deployment, metrics Service
+config/monitoring/      ServiceMonitor, PrometheusRule alerts, Grafana dashboard (GitOps mode)
 gitops/apps/            ArgoCD app-of-apps: child Applications with sync waves
 gitops/operator/        kustomize overlay: operator image pinned to a GHCR sha tag
 infra/modules/          Terraform module platform-bootstrap (ArgoCD + root app)
@@ -131,7 +153,7 @@ ROADMAP.md              phases and feedback backlog
 
 ## Roadmap
 
-Phases 1 (operator core) and 2 (Terraform + ArgoCD GitOps) are done. Next: the Grafana/Loki/Prometheus/Alertmanager stack, CloudNativePG + an admission webhook based on my MEng thesis on the security of Kubernetes manifests, and EKS. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
+Phases 1 (operator core), 2 (Terraform + ArgoCD GitOps) and 3 (observability) are done. Next: CloudNativePG + an admission webhook based on my MEng thesis on the security of Kubernetes manifests, and EKS. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Author
 

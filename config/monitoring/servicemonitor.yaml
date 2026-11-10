@@ -1,0 +1,15 @@
+# Prometheus scrapes the operator's /metrics (webapp_* + controller_runtime_*).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: webapp-operator
+  namespace: webapp-system
+  labels:
+    app.kubernetes.io/name: webapp-operator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webapp-operator
+  endpoints:
+    - port: metrics
+      interval: 15s
