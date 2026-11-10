@@ -1,0 +1,18 @@
+# What a product-team developer writes. Everything else is a platform default.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: platform.example.com/v1
+kind: WebApp
+metadata:
+  name: podinfo
+  namespace: demo
+spec:
+  image: ghcr.io/stefanprodan/podinfo:6.7.1
+  replicas: 2
+  port: 9898
+  healthPath: /healthz

@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Lint & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Resolve modules
+        run: go mod tidy
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -count=1 -race
+
+  manifests:
+    name: Validate manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          ./kubeconform -strict -summary -ignore-missing-schemas config/ apps/
+
+  e2e:
+    name: End-to-end on kind + drills
+    runs-on: ubuntu-latest
+    needs: [unit, manifests]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: webapp-demo
+          config: hack/kind-config.yaml
+      - name: Deploy platform
+        run: make deploy sample
+      - name: Run failure drills
+        run: make drill-all
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get webapp,deploy,pods -A
+          kubectl -n webapp-system logs deploy/webapp-operator --tail=200

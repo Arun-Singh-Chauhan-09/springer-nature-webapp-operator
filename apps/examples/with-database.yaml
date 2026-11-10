@@ -1,0 +1,13 @@
+# needsDatabase is accepted today and reported as DatabaseReady=Unknown.
+# Provisioning via CloudNativePG is on the roadmap (see ROADMAP.md).
+apiVersion: platform.example.com/v1
+kind: WebApp
+metadata:
+  name: shop
+  namespace: demo
+spec:
+  image: ghcr.io/stefanprodan/podinfo:6.7.1
+  replicas: 1
+  port: 9898
+  healthPath: /healthz
+  needsDatabase: true

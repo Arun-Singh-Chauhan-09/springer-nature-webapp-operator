@@ -1,0 +1,11 @@
+# The API server rejects this before the operator ever sees it:
+#   kubectl apply -f apps/examples/rejected-latest-tag.yaml
+#   -> spec.image: Invalid value: the ':latest' tag is not allowed; pin a version
+apiVersion: platform.example.com/v1
+kind: WebApp
+metadata:
+  name: bad-example
+  namespace: demo
+spec:
+  image: nginx:latest
+  port: 8080

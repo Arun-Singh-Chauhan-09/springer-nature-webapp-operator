@@ -1,0 +1,34 @@
+KCTX=kind-webapp-demo bash ./drills/run-all.sh
+=================== d1-self-heal.sh ===================
+[36m[14:45:41][0m D1 self-heal: deleting deployment/podinfo
+[36m[14:45:41][0m WebApp is Ready after 0s
+deployment.apps "podinfo" deleted from demo namespace
+[36m[14:45:42][0m Deployment recreated by operator after 1s
+[36m[14:45:44][0m WebApp back to Ready after 2s
+[32mPASS[0m D1 self-heal: operator restored the Deployment
+=================== d2-bad-release.sh ===================
+[36m[14:45:44][0m WebApp is Ready after 0s
+[36m[14:45:44][0m D2 bad release: ghcr.io/stefanprodan/podinfo:6.7.1 -> ghcr.io/stefanprodan/podinfo:0.0.0-does-not-exist
+webapp.platform.example.com/podinfo patched
+[36m[14:45:52][0m WebApp reported Degraded after 7s
+[36m[14:45:52][0m Reason surfaced to developer: ErrImagePull
+[36m[14:45:52][0m Rolling back to ghcr.io/stefanprodan/podinfo:6.7.1
+[36m[14:45:52][0m WebApp back to Ready after 0s
+[32mPASS[0m D2 bad release: detected (ErrImagePull) and recovered
+=================== d4-operator-down.sh ===================
+[36m[14:45:52][0m WebApp is Ready after 0s
+[36m[14:45:52][0m D4 operator down: scaling operator to 0
+deployment.apps/webapp-operator scaled
+pod/webapp-operator-cdfb4f4d6-jkrjs condition met
+deployment.apps "podinfo" deleted from demo namespace
+[36m[14:45:53][0m Waiting 20s with the operator down...
+[36m[14:46:14][0m Confirmed: nothing heals the app while the operator is down
+[36m[14:46:14][0m Bringing operator back
+[36m[14:46:32][0m Operator caught up and recreated the Deployment after 18s
+[36m[14:46:34][0m WebApp back to Ready after 2s
+[32mPASS[0m D4 operator down: outage contained, operator recovered on restart
+
+================ Drill report ================
+  d1-self-heal.sh          PASS (3s)
+  d2-bad-release.sh        PASS (8s)
+  d4-operator-down.sh      PASS (42s)
