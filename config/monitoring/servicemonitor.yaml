@@ -12,4 +12,8 @@ spec:
       app.kubernetes.io/name: webapp-operator
   endpoints:
     - port: metrics
+      # The operator exports its own "namespace" label (the WebApp's namespace).
+      # Without this, Prometheus overwrites it with the scrape target's namespace
+      # (webapp-system) and renames ours to exported_namespace.
+      honorLabels: true
       interval: 15s
