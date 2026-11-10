@@ -8,4 +8,4 @@ resources:
 images:
   - name: webapp-operator
     newName: ghcr.io/arun-singh-chauhan-09/webapp-operator
-    newTag: main
+    newTag: sha-2d51dfb
