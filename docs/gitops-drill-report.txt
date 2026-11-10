@@ -1,0 +1,19 @@
+KCTX=kind-webapp-gitops DRILLS="d1-self-heal.sh d5-gitops-drift.sh" bash ./drills/run-all.sh
+=================== d1-self-heal.sh ===================
+[15:43:55] D1 self-heal: deleting deployment/podinfo
+[15:43:56] WebApp is Ready after 1s
+deployment.apps "podinfo" deleted from demo namespace
+[15:43:56] Deployment recreated by operator after 0s
+[15:44:01] WebApp back to Ready after 5s
+PASS D1 self-heal: operator restored the Deployment
+=================== d5-gitops-drift.sh ===================
+[15:44:01] WebApp is Ready after 0s
+[15:44:01] D5 GitOps drift: Git says replicas=2, scaling to 5 by hand
+[15:44:02] Manual change applied, live replicas=5
+[15:44:04] ArgoCD reverted replicas to 2 (the Git value) after 2s
+[15:44:05] WebApp back to Ready after 1s
+PASS D5 GitOps drift: manual change reverted, Git is the source of truth
+
+================ Drill report ================
+  d1-self-heal.sh          PASS (6s)
+  d5-gitops-drift.sh       PASS (4s)
