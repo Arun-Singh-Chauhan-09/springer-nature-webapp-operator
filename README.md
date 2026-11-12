@@ -80,6 +80,9 @@ terraform (infra/envs/kind)
                                         ├─ wave -2  monitoring        kube-prometheus-stack (Prometheus, Alertmanager, Grafana)
                                         ├─ wave -2  loki              Loki single binary
                                         ├─ wave -2  cert-manager      TLS for the admission webhook
+                                        ├─ wave -2  cnpg              CloudNativePG operator
+                                        ├─ wave -1  barman-cloud      CNPG backup plugin
+                                        ├─ wave  0  backups           MinIO + ObjectStore (backup target)
                                         ├─ wave -1  alloy             Grafana Alloy: pod logs -> Loki
                                         ├─ wave -1  webapp-crds       config/crd
                                         ├─ wave  0  webapp-operator   gitops/operator: operator + policy webhook, ServiceMonitor, alerts, dashboard
@@ -104,6 +107,29 @@ Design choices:
 - **One reusable module.** `infra/modules/platform-bootstrap` is shared by every environment; `infra/envs/kind` today, `infra/envs/eks` in Phase 5.
 - **Sync waves that actually wait.** ArgoCD no longer health-checks `Application` resources, so the module adds a Lua health check for them, plus one for `WebApp` (Ready → Healthy, Degraded → Degraded). A broken release shows up red in the ArgoCD UI, not only in `kubectl`.
 - **Immutable image promotion.** CI publishes `ghcr.io/arun-singh-chauhan-09/webapp-operator:sha-<commit>` on every push to `main`; `make pin-image` pins `gitops/operator/kustomization.yaml` to that tag, and the Git commit is the deployment. Rollback = `git revert`.
+
+## Databases (CloudNativePG) with tested backups
+
+A developer adds one line, `needsDatabase: true` (see [apps/orders.yaml](apps/orders.yaml)).
+The operator then:
+
+1. creates a **CloudNativePG** Postgres `Cluster` named `<app>-db`, owned by the WebApp,
+   with continuous **WAL archiving and backups** to the platform object store
+   (Barman Cloud plugin, CNPG-I; MinIO on kind, S3 on EKS);
+2. reports `DatabaseReady` on the WebApp and keeps the app `Progressing` until it is up;
+3. injects `DATABASE_URL` (from the secret CNPG generates) **only once the database is
+   ready**, so pods never start without credentials and the app rolls out once.
+
+| Decision | Why |
+|---|---|
+| CNPG driven through unstructured objects | no dependency on CNPG's Go module; the operator still runs where CNPG is absent (`--enable-databases` off -> WebApp `Degraded`, reason `DatabasesDisabled`, not silently Ready) |
+| Full Cluster spec only written at creation | fields CNPG defaults on the server never cause an update loop; later changes are a DBA decision |
+| Database owned by the WebApp | deleting the app deletes the database, but backups stay in the object store (7-day retention) |
+| Barman Cloud plugin, not `barmanObjectStore` | the in-tree integration is deprecated since CNPG 1.26 |
+
+**Drill D3** proves the backups are usable: it writes a marker row, takes a backup, restores
+it into a *new* cluster (with no WAL archiving, so it cannot overwrite the original's
+archive), and checks the row is there.
 
 ## Workload policy (admission webhook, from my MEng thesis)
 
@@ -182,10 +208,11 @@ and asserts that each alert reaches Alertmanager and resolves again.
 | D4 operator down | Operator scaled to 0, Deployment deleted | Nothing heals while it's down (proves the operator is the healer); recovers on restart |
 
 | D5 GitOps drift | `kubectl patch` the WebApp to 5 replicas by hand | ArgoCD selfHeal reverts it to the Git value; WebApp back to Ready |
+| D3 database restore | write a marker row, take a backup, restore it into a new cluster | Backup completes; restored cluster becomes Ready; marker row present |
 | D7 workload policy | `kubectl apply --dry-run=server` an unsafe, a hardened and a sloppy Deployment | Unsafe denied with KSV IDs; hardened admitted clean; sloppy admitted with KSV011/018/014 warnings |
 | D6 alerting | ArgoCD auto-sync paused; bad image, then operator scaled to 0 | `WebAppNotReady` and `OperatorDown` reach Alertmanager, then resolve after recovery; auto-sync restored |
 
-D1, D2 and D4 run against `make up`; D1, D5, D6 and D7 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D3 (database restore) comes with Phase 4. D1/D2/D4 also run in CI on a kind cluster.
+D1, D2 and D4 run against `make up`; D1, D3, D5, D6 and D7 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D1/D2/D4 also run in CI on a kind cluster.
 
 ## Repository layout
 
@@ -199,6 +226,8 @@ config/monitoring/      ServiceMonitor, PrometheusRule alerts, Grafana dashboard
 config/webhook/         operator + admission webhook: cert-manager Certificate, Service, ValidatingWebhookConfiguration
 internal/policy/        workload security rules (Trivy KSV-aligned), pure Go, table-tested
 internal/workloadpolicy/ admission handler: deny / warn, metrics
+internal/controller/database.go  CloudNativePG Cluster per WebApp, DATABASE_URL injection
+gitops/backups/         MinIO backup target + Barman Cloud ObjectStore
 gitops/apps/            ArgoCD app-of-apps: child Applications with sync waves
 gitops/operator/        kustomize overlay: operator image pinned to a GHCR sha tag
 infra/modules/          Terraform module platform-bootstrap (ArgoCD + root app)
@@ -214,7 +243,7 @@ ROADMAP.md              phases and feedback backlog
 
 ## Roadmap
 
-Phases 1 (operator core), 2 (Terraform + ArgoCD GitOps), 3 (observability), 4a (workload policy webhook from my thesis) and 5 (EKS as validated code) are done. Next: CloudNativePG databases for WebApps and a restore drill. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
+All phases are done: 1 operator core, 2 Terraform + ArgoCD GitOps, 3 observability, 4a workload policy webhook from my thesis, 4b CloudNativePG databases with a restore drill, 5 EKS as validated code. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Author
 

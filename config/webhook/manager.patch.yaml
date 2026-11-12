@@ -1,4 +1,5 @@
-# Turns the webhook on in the operator and mounts the cert-manager certificate.
+# GitOps mode: turns on the admission webhook (cert-manager certificate mounted) and
+# CloudNativePG databases with Barman Cloud backups to the platform object store.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9,7 +10,11 @@ spec:
     spec:
       containers:
         - name: manager
-          args: [--leader-elect, --enable-webhooks]
+          args:
+            - --leader-elect
+            - --enable-webhooks
+            - --enable-databases
+            - --db-backup-object-store=platform-backups
           ports:
             - name: webhook
               containerPort: 9443

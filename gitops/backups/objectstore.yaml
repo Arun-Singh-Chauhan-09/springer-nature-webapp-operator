@@ -1,0 +1,28 @@
+# Where CloudNativePG (via the Barman Cloud plugin) archives WAL and base backups for
+# databases in the demo namespace. The operator points every WebApp database here
+# (--db-backup-object-store=platform-backups). The demo Namespace itself is owned by
+# the workloads app (apps/podinfo.yaml); this app only creates it if missing.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-s3-credentials
+  namespace: demo
+stringData:
+  ACCESS_KEY_ID: platform-backup
+  ACCESS_SECRET_KEY: local-demo-only-change-me
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: platform-backups
+  namespace: demo
+spec:
+  retentionPolicy: "7d"
+  configuration:
+    destinationPath: s3://backups/
+    endpointURL: http://minio.minio.svc:9000
+    s3Credentials:
+      accessKeyId: {name: backup-s3-credentials, key: ACCESS_KEY_ID}
+      secretAccessKey: {name: backup-s3-credentials, key: ACCESS_SECRET_KEY}
+    wal:
+      compression: gzip

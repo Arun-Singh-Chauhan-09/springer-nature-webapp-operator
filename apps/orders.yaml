@@ -1,0 +1,14 @@
+# A WebApp with a database (GitOps mode). The developer asks for one line, needsDatabase;
+# the platform provisions Postgres with CloudNativePG, continuous backups to object
+# storage, and injects DATABASE_URL once the database is ready.
+apiVersion: platform.example.com/v1
+kind: WebApp
+metadata:
+  name: orders
+  namespace: demo
+spec:
+  image: ghcr.io/stefanprodan/podinfo:6.7.1
+  replicas: 1
+  port: 9898
+  healthPath: /healthz
+  needsDatabase: true

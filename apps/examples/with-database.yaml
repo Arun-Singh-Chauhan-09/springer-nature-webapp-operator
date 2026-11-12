@@ -1,5 +1,5 @@
-# needsDatabase is accepted today and reported as DatabaseReady=Unknown.
-# Provisioning via CloudNativePG is on the roadmap (see ROADMAP.md).
+# needsDatabase provisions a CloudNativePG Postgres cluster (GitOps mode, see apps/orders.yaml).
+# Without --enable-databases the WebApp is Degraded with reason DatabasesDisabled.
 apiVersion: platform.example.com/v1
 kind: WebApp
 metadata:

@@ -227,15 +227,21 @@ func TestReconcileIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestDatabaseConditionReported(t *testing.T) {
+// Without CloudNativePG (operator started without --enable-databases) an app that
+// needs a database is Degraded with a clear reason, not silently "Ready".
+func TestDatabaseRequestedButPlatformHasNone(t *testing.T) {
 	app := newApp()
 	app.Spec.NeedsDatabase = true
 	r, c := setup(t, app)
 	reconcileOnce(t, r)
 
-	cond := meta.FindStatusCondition(getApp(t, c).Status.Conditions, platformv1.ConditionDatabaseReady)
-	if cond == nil || cond.Status != metav1.ConditionUnknown {
-		t.Errorf("DatabaseReady condition = %+v, want Unknown", cond)
+	got := getApp(t, c)
+	cond := meta.FindStatusCondition(got.Status.Conditions, platformv1.ConditionDatabaseReady)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != "DatabasesDisabled" {
+		t.Errorf("DatabaseReady condition = %+v, want False/DatabasesDisabled", cond)
+	}
+	if got.Status.Phase != platformv1.PhaseDegraded {
+		t.Errorf("phase = %q, want Degraded", got.Status.Phase)
 	}
 }
 

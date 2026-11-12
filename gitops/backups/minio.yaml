@@ -1,0 +1,121 @@
+# Local S3-compatible backup target for the kind platform.
+# Demo credentials are in Git ON PURPOSE because this only runs on a throwaway local
+# cluster. Production: an S3 bucket with Pod Identity, or External Secrets.
+# MinIO no longer publishes community images; this pinned release is for local use only.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minio
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-root
+  namespace: minio
+stringData:
+  MINIO_ROOT_USER: platform-backup
+  MINIO_ROOT_PASSWORD: local-demo-only-change-me
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: minio
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: minio
+  labels: {app.kubernetes.io/name: minio}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: minio}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: minio}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+          args: [server, /data]
+          envFrom:
+            - secretRef: {name: minio-root}
+          ports:
+            - {name: s3, containerPort: 9000}
+          readinessProbe:
+            httpGet: {path: /minio/health/ready, port: s3}
+          livenessProbe:
+            httpGet: {path: /minio/health/live, port: s3}
+            initialDelaySeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: minio-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: minio
+spec:
+  selector: {app.kubernetes.io/name: minio}
+  ports:
+    - {name: s3, port: 9000, targetPort: s3}
+---
+# Creates the bucket once MinIO is up (idempotent).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: create-backup-bucket
+  namespace: minio
+  annotations:
+    argocd.argoproj.io/sync-options: Replace=true
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: create-bucket
+          image: amazon/aws-cli:2.17.0
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: {secretKeyRef: {name: minio-root, key: MINIO_ROOT_USER}}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: minio-root, key: MINIO_ROOT_PASSWORD}}
+            - {name: AWS_DEFAULT_REGION, value: us-east-1}
+            - {name: HOME, value: /tmp}
+          command: [sh, -c]
+          args:
+            - >-
+              aws --endpoint-url http://minio.minio.svc:9000 s3api head-bucket --bucket backups 2>/dev/null
+              || aws --endpoint-url http://minio.minio.svc:9000 s3 mb s3://backups
+          resources:
+            limits: {cpu: 200m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}

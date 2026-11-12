@@ -1,0 +1,25 @@
+# Wave 0: backup target. MinIO (S3 API) on kind; on EKS this would be an S3 bucket
+# with Pod Identity instead of static keys. Also the ObjectStore in the demo namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: backups
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Arun-Singh-Chauhan-09/springer-nature-webapp-operator.git
+    targetRevision: main
+    path: gitops/backups
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: demo
+  syncPolicy:
+    automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - CreateNamespace=true   # demo is owned by the workloads app; create it only if missing
+      - SkipDryRunOnMissingResource=true

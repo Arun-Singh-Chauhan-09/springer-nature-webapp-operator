@@ -10,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,6 +40,7 @@ type WebAppReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
+	Database DatabaseConfig
 }
 
 // +kubebuilder:rbac:groups=platform.example.com,resources=webapps,verbs=get;list;watch;update;patch
@@ -47,6 +49,7 @@ type WebAppReconciler struct {
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=postgresql.cnpg.io,resources=clusters,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is idempotent: it can run any number of times and always
 // converges the cluster toward the WebApp spec.
@@ -68,7 +71,16 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	original := app.DeepCopy()
 
-	dep, err := r.reconcileDeployment(ctx, &app)
+	// The database comes first: its readiness decides whether DATABASE_URL is injected.
+	var db dbState
+	var err error
+	if app.Spec.NeedsDatabase {
+		db, err = r.reconcileDatabase(ctx, &app)
+	}
+	var dep *appsv1.Deployment
+	if err == nil {
+		dep, err = r.reconcileDeployment(ctx, &app, db)
+	}
 	if err == nil {
 		err = r.reconcileService(ctx, &app)
 	}
@@ -82,7 +94,7 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	if err := r.computeStatus(ctx, &app, dep); err != nil {
+	if err := r.computeStatus(ctx, &app, dep, db); err != nil {
 		return ctrl.Result{}, err
 	}
 	if err := r.patchStatus(ctx, original, &app); err != nil {
@@ -96,10 +108,11 @@ func (r *WebAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{}, nil
 }
 
-func (r *WebAppReconciler) reconcileDeployment(ctx context.Context, app *platformv1.WebApp) (*appsv1.Deployment, error) {
+func (r *WebAppReconciler) reconcileDeployment(ctx context.Context, app *platformv1.WebApp, db dbState) (*appsv1.Deployment, error) {
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: app.Name, Namespace: app.Namespace}}
 	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
 		mutateDeployment(app, dep)
+		injectDatabaseEnv(app, dep, db)
 		return controllerutil.SetControllerReference(app, dep, r.Scheme)
 	})
 	if err != nil {
@@ -132,7 +145,7 @@ func (r *WebAppReconciler) recordChildChange(app *platformv1.WebApp, kind string
 }
 
 // computeStatus derives phase and conditions from the live Deployment and pods.
-func (r *WebAppReconciler) computeStatus(ctx context.Context, app *platformv1.WebApp, dep *appsv1.Deployment) error {
+func (r *WebAppReconciler) computeStatus(ctx context.Context, app *platformv1.WebApp, dep *appsv1.Deployment, db dbState) error {
 	want := desiredReplicas(app)
 	app.Status.ObservedGeneration = app.Generation
 	app.Status.ReadyReplicas = dep.Status.ReadyReplicas
@@ -163,8 +176,21 @@ func (r *WebAppReconciler) computeStatus(ctx context.Context, app *platformv1.We
 	}
 
 	if app.Spec.NeedsDatabase {
-		setCondition(app, platformv1.ConditionDatabaseReady, metav1.ConditionUnknown, "NotYetSupported",
-			"database provisioning (CloudNativePG) is on the roadmap")
+		dbStatus := metav1.ConditionFalse
+		if db.ready {
+			dbStatus = metav1.ConditionTrue
+		}
+		setCondition(app, platformv1.ConditionDatabaseReady, dbStatus, db.reason, db.message)
+		switch {
+		case db.reason == "DatabasesDisabled":
+			// The app asks for something this platform cannot provide: not transient.
+			app.Status.Phase = platformv1.PhaseDegraded
+			setCondition(app, platformv1.ConditionReady, metav1.ConditionFalse, db.reason, db.message)
+		case !db.ready && app.Status.Phase == platformv1.PhaseReady:
+			// Pods may be up, but the app is not usable without its database.
+			app.Status.Phase = platformv1.PhaseProgressing
+			setCondition(app, platformv1.ConditionReady, metav1.ConditionFalse, "WaitingForDatabase", db.message)
+		}
 	} else {
 		meta.RemoveStatusCondition(&app.Status.Conditions, platformv1.ConditionDatabaseReady)
 	}
@@ -215,10 +241,17 @@ func setCondition(app *platformv1.WebApp, condType string, status metav1.Conditi
 // SetupWithManager wires the controller: it watches WebApps and the
 // Deployments/Services it owns, so drift or deletion triggers a reconcile.
 func (r *WebAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.WebApp{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
-		Named("webapp").
-		Complete(r)
+		Named("webapp")
+	if r.Database.Enabled {
+		// Only watch CNPG Clusters when CloudNativePG is installed; the watch would
+		// fail at startup if its CRD did not exist.
+		cluster := &unstructured.Unstructured{}
+		cluster.SetGroupVersionKind(cnpgClusterGVK)
+		b = b.Owns(cluster)
+	}
+	return b.Complete(r)
 }
