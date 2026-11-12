@@ -374,6 +374,64 @@
         "wrapLogMessage": true,
         "sortOrder": "Descending"
       }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Admission policy decisions (5m)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (mode, decision) (increase(webapp_policy_admission_total[5m]))",
+          "legendFormat": "{{mode}} {{decision}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "barchart",
+      "title": "Policy findings by Trivy check (1h)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sort_desc(sum by (check) (increase(webapp_policy_findings_total[1h])))",
+          "instant": true,
+          "format": "table",
+          "legendFormat": "{{check}}"
+        }
+      ],
+      "options": {
+        "xField": "check",
+        "orientation": "horizontal"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
     }
   ]
 }

@@ -5,6 +5,7 @@ metadata:
   name: demo
   labels:
     pod-security.kubernetes.io/enforce: restricted
+    platform.example.com/policy: enforce   # workload policy webhook (GitOps mode)
 ---
 apiVersion: platform.example.com/v1
 kind: WebApp

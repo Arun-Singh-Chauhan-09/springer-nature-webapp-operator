@@ -1,0 +1,64 @@
+# Opt-in per namespace with the label platform.example.com/policy:
+#   enforce -> high-risk findings are denied (failurePolicy: Fail)
+#   warn    -> everything is allowed, findings come back as warnings (failurePolicy: Ignore)
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: webapp-workload-policy
+  annotations:
+    cert-manager.io/inject-ca-from: webapp-system/webapp-operator-webhook
+webhooks:
+  - name: enforce.workload-policy.platform.example.com
+    clientConfig:
+      service:
+        name: webapp-operator-webhook
+        namespace: webapp-system
+        path: /validate-workloads-enforce
+        port: 443
+    namespaceSelector:
+      matchLabels:
+        platform.example.com/policy: enforce
+    rules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        resources: [pods]
+        operations: [CREATE, UPDATE]
+      - apiGroups: [apps]
+        apiVersions: [v1]
+        resources: [deployments, statefulsets, daemonsets]
+        operations: [CREATE, UPDATE]
+      - apiGroups: [batch]
+        apiVersions: [v1]
+        resources: [jobs, cronjobs]
+        operations: [CREATE, UPDATE]
+    failurePolicy: Fail
+    sideEffects: None
+    admissionReviewVersions: [v1]
+    timeoutSeconds: 5
+  - name: warn.workload-policy.platform.example.com
+    clientConfig:
+      service:
+        name: webapp-operator-webhook
+        namespace: webapp-system
+        path: /validate-workloads-warn
+        port: 443
+    namespaceSelector:
+      matchLabels:
+        platform.example.com/policy: warn
+    rules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        resources: [pods]
+        operations: [CREATE, UPDATE]
+      - apiGroups: [apps]
+        apiVersions: [v1]
+        resources: [deployments, statefulsets, daemonsets]
+        operations: [CREATE, UPDATE]
+      - apiGroups: [batch]
+        apiVersions: [v1]
+        resources: [jobs, cronjobs]
+        operations: [CREATE, UPDATE]
+    failurePolicy: Ignore
+    sideEffects: None
+    admissionReviewVersions: [v1]
+    timeoutSeconds: 5

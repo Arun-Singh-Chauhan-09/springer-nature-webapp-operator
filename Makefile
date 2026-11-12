@@ -82,8 +82,8 @@ argocd-ui: ## Print the admin password and port-forward the ArgoCD UI to localho
 	@echo "ArgoCD UI: http://localhost:8080  user: admin  password: $$($(GK) -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
 	$(GK) -n argocd port-forward svc/argocd-server 8080:80
 
-gitops-drills: ## D1 self-heal + D5 GitOps drift + D6 alerting on the GitOps cluster (~6 min)
-	KCTX=$(GITOPS_KCTX) DRILLS="d1-self-heal.sh d5-gitops-drift.sh d6-alerts.sh" bash ./drills/run-all.sh
+gitops-drills: ## D1 self-heal + D5 GitOps drift + D6 alerting + D7 policy on the GitOps cluster (~6 min)
+	KCTX=$(GITOPS_KCTX) DRILLS="d1-self-heal.sh d5-gitops-drift.sh d6-alerts.sh d7-policy.sh" bash ./drills/run-all.sh
 
 grafana-ui: ## Grafana on http://localhost:3000 (admin/admin), dashboard "Platform Health"
 	@echo "Grafana: http://localhost:3000  user: admin  password: admin  -> Dashboards -> Platform Health"
@@ -126,6 +126,8 @@ drill-d4: ## D4 operator down: prove the operator is what heals
 	KCTX=$(KCTX) bash ./drills/d4-operator-down.sh
 drill-d5: ## D5 GitOps drift (GitOps cluster only)
 	KCTX=$(GITOPS_KCTX) bash ./drills/d5-gitops-drift.sh
+drill-d7: ## D7 workload policy: unsafe Deployment denied, hardened admitted, warnings for gaps (GitOps cluster only)
+	KCTX=$(GITOPS_KCTX) bash ./drills/d7-policy.sh
 drill-d6: ## D6 alerting: WebAppNotReady + OperatorDown fire and resolve (GitOps cluster only, ~5 min)
 	KCTX=$(GITOPS_KCTX) bash ./drills/d6-alerts.sh
 drill-all: ## Run all drills and print a PASS/FAIL report
@@ -135,4 +137,4 @@ drill-all: ## Run all drills and print a PASS/FAIL report
 down: ## Delete the kind cluster
 	kind delete cluster --name $(CLUSTER)
 
-.PHONY: help tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills grafana-ui alerts pin-image tf-check tf-lint tf-sec eks-plan gitops-down drill-d1 drill-d2 drill-d4 drill-d5 drill-d6 drill-all down
+.PHONY: help tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills grafana-ui alerts pin-image tf-check tf-lint tf-sec eks-plan gitops-down drill-d1 drill-d2 drill-d4 drill-d5 drill-d6 drill-d7 drill-all down

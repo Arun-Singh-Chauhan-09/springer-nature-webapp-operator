@@ -1,0 +1,23 @@
+# Turns the webhook on in the operator and mounts the cert-manager certificate.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-operator
+  namespace: webapp-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: manager
+          args: [--leader-elect, --enable-webhooks]
+          ports:
+            - name: webhook
+              containerPort: 9443
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: webapp-operator-webhook-tls

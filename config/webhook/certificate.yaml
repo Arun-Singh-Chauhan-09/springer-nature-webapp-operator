@@ -1,0 +1,25 @@
+# Self-signed serving certificate for the webhook. cert-manager renews it and its
+# cainjector writes the CA into the ValidatingWebhookConfiguration (caBundle).
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: webapp-selfsigned
+  namespace: webapp-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: webapp-operator-webhook
+  namespace: webapp-system
+spec:
+  secretName: webapp-operator-webhook-tls
+  dnsNames:
+    - webapp-operator-webhook.webapp-system.svc
+    - webapp-operator-webhook.webapp-system.svc.cluster.local
+  issuerRef:
+    name: webapp-selfsigned
+    kind: Issuer
+  privateKey:
+    rotationPolicy: Always

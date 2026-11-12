@@ -1,0 +1,11 @@
+# The operator plus its admission webhook. Used in GitOps mode (gitops/operator);
+# needs cert-manager. Plain `make up` keeps using config/operator without the webhook.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../operator
+  - certificate.yaml
+  - service.yaml
+  - validatingwebhook.yaml
+patches:
+  - path: manager.patch.yaml

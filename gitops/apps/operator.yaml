@@ -17,5 +17,14 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: webapp-system
+  # cert-manager's cainjector fills in the webhook caBundle at runtime; without this,
+  # ArgoCD would see it as drift and fight cert-manager forever.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
   syncPolicy:
     automated: {prune: true, selfHeal: true}
+    syncOptions:
+      - RespectIgnoreDifferences=true

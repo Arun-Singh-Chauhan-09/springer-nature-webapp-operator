@@ -79,9 +79,10 @@ terraform (infra/envs/kind)
                                         │  app-of-apps: gitops/apps/
                                         ├─ wave -2  monitoring        kube-prometheus-stack (Prometheus, Alertmanager, Grafana)
                                         ├─ wave -2  loki              Loki single binary
+                                        ├─ wave -2  cert-manager      TLS for the admission webhook
                                         ├─ wave -1  alloy             Grafana Alloy: pod logs -> Loki
                                         ├─ wave -1  webapp-crds       config/crd
-                                        ├─ wave  0  webapp-operator   gitops/operator: operator + ServiceMonitor, alerts, dashboard
+                                        ├─ wave  0  webapp-operator   gitops/operator: operator + policy webhook, ServiceMonitor, alerts, dashboard
                                         └─ wave  1  webapp-workloads  apps/*.yaml
 ```
 
@@ -103,6 +104,38 @@ Design choices:
 - **One reusable module.** `infra/modules/platform-bootstrap` is shared by every environment; `infra/envs/kind` today, `infra/envs/eks` in Phase 5.
 - **Sync waves that actually wait.** ArgoCD no longer health-checks `Application` resources, so the module adds a Lua health check for them, plus one for `WebApp` (Ready → Healthy, Degraded → Degraded). A broken release shows up red in the ArgoCD UI, not only in `kubectl`.
 - **Immutable image promotion.** CI publishes `ghcr.io/arun-singh-chauhan-09/webapp-operator:sha-<commit>` on every push to `main`; `make pin-image` pins `gitops/operator/kustomization.yaml` to that tag, and the Git commit is the deployment. Rollback = `git revert`.
+
+## Workload policy (admission webhook, from my MEng thesis)
+
+My MEng thesis, *Security and Deployability of LLM-Generated Kubernetes Manifests*,
+scanned 720 generated manifests with Trivy and found that workload manifests almost
+never came out clean. This webhook enforces the same Trivy checks (KSV IDs) at the
+API server, so an unsafe manifest is stopped at `kubectl apply`, whoever or whatever wrote it.
+
+| Action | Checks |
+|---|---|
+| **Deny** | privileged (KSV017), host network/PID/IPC (KSV009/010/008), hostPath (KSV023), privilege escalation (KSV001), may run as root (KSV012), SYS_ADMIN (KSV005), `:latest` or untagged image (KSV013) |
+| **Warn** | no CPU/memory limit (KSV011/018), writable root filesystem (KSV014), capabilities not dropped (KSV003), no seccomp profile (KSV030), other added capabilities (KSV022) |
+
+```text
+$ kubectl apply -f unsafe.yaml
+Error from server (Forbidden): admission webhook "enforce.workload-policy.platform.example.com" denied the request:
+denied by platform policy (Trivy KSV checks): [KSV009] uses the host network (hostNetwork: true);
+[KSV023] mounts hostPath "/" as volume "host"; [KSV017] container "app": runs privileged ...
+```
+
+- **Why not just Pod Security Admission?** PSA checks Pods, so a dangerous Deployment is
+  accepted and its pods silently fail to appear. The webhook rejects the Deployment itself,
+  names the checks, and also covers image tags and limits, which PSA does not.
+- **Opt-in per namespace** with `platform.example.com/policy: enforce` or `warn`; warn mode
+  reports everything and blocks nothing, for rolling it out to existing teams.
+- **The paved road passes its own policy:** a unit test fails if a change to the operator's
+  defaults would make WebApp Deployments violate a deny rule.
+- TLS from cert-manager; ArgoCD ignores the injected `caBundle` so the two do not fight.
+- Decisions and findings are Prometheus metrics, shown on the Platform Health dashboard.
+
+Code: `internal/policy` (rules, pure Go, table-tested), `internal/workloadpolicy` (handler),
+`config/webhook` (certificate, Service, ValidatingWebhookConfiguration). Drill D7 proves it.
 
 ## EKS (Terraform, code only)
 
@@ -149,9 +182,10 @@ and asserts that each alert reaches Alertmanager and resolves again.
 | D4 operator down | Operator scaled to 0, Deployment deleted | Nothing heals while it's down (proves the operator is the healer); recovers on restart |
 
 | D5 GitOps drift | `kubectl patch` the WebApp to 5 replicas by hand | ArgoCD selfHeal reverts it to the Git value; WebApp back to Ready |
+| D7 workload policy | `kubectl apply --dry-run=server` an unsafe, a hardened and a sloppy Deployment | Unsafe denied with KSV IDs; hardened admitted clean; sloppy admitted with KSV011/018/014 warnings |
 | D6 alerting | ArgoCD auto-sync paused; bad image, then operator scaled to 0 | `WebAppNotReady` and `OperatorDown` reach Alertmanager, then resolve after recovery; auto-sync restored |
 
-D1, D2 and D4 run against `make up`; D1, D5 and D6 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D3 (database restore) comes with Phase 4. D1/D2/D4 also run in CI on a kind cluster.
+D1, D2 and D4 run against `make up`; D1, D5, D6 and D7 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D3 (database restore) comes with Phase 4. D1/D2/D4 also run in CI on a kind cluster.
 
 ## Repository layout
 
@@ -162,6 +196,9 @@ cmd/                    manager entrypoint
 config/crd/             CRD with OpenAPI + CEL validation and printer columns
 config/operator/        namespace, RBAC (least privilege), operator Deployment, metrics Service
 config/monitoring/      ServiceMonitor, PrometheusRule alerts, Grafana dashboard (GitOps mode)
+config/webhook/         operator + admission webhook: cert-manager Certificate, Service, ValidatingWebhookConfiguration
+internal/policy/        workload security rules (Trivy KSV-aligned), pure Go, table-tested
+internal/workloadpolicy/ admission handler: deny / warn, metrics
 gitops/apps/            ArgoCD app-of-apps: child Applications with sync waves
 gitops/operator/        kustomize overlay: operator image pinned to a GHCR sha tag
 infra/modules/          Terraform module platform-bootstrap (ArgoCD + root app)
@@ -177,7 +214,7 @@ ROADMAP.md              phases and feedback backlog
 
 ## Roadmap
 
-Phases 1 (operator core), 2 (Terraform + ArgoCD GitOps), 3 (observability) and 5 (EKS as validated code) are done. Next: an admission webhook based on my MEng thesis on the security of Kubernetes manifests, and CloudNativePG. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
+Phases 1 (operator core), 2 (Terraform + ArgoCD GitOps), 3 (observability), 4a (workload policy webhook from my thesis) and 5 (EKS as validated code) are done. Next: CloudNativePG databases for WebApps and a restore drill. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Author
 
