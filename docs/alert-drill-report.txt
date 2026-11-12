@@ -1,0 +1,15 @@
+KCTX=kind-webapp-gitops bash ./drills/d6-alerts.sh
+[14:21:29] WebApp is Ready after 0s
+[14:21:29] D6 alerting: pausing ArgoCD auto-sync on platform-root webapp-operator webapp-workloads
+[14:21:30] Part A: bad release (ghcr.io/stefanprodan/podinfo:6.7.1 -> 0.0.0-does-not-exist)
+[14:21:41] WebApp reported Degraded after 11s
+[14:23:01] Alertmanager received WebAppNotReady after 80s
+[14:23:01] Rolling back to ghcr.io/stefanprodan/podinfo:6.7.1
+[14:23:02] WebApp back to Ready after 1s
+[14:23:32] WebAppNotReady resolved after 30s
+[14:23:32] Part B: operator down (scaling to 0)
+[14:25:01] Alertmanager received OperatorDown after 88s
+[14:25:01] Bringing the operator back
+[14:25:32] OperatorDown resolved after 21s
+PASS D6 alerting: both platform alerts fired and resolved
+[14:25:33] Auto-sync restored on: platform-root webapp-operator webapp-workloads

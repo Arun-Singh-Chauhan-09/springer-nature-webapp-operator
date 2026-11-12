@@ -67,7 +67,7 @@ gitops-up: ## Terraform creates kind + ArgoCD; ArgoCD deploys CRD -> operator ->
 	$(TF) -chdir=$(TF_DIR) init -input=false
 	$(TF) -chdir=$(TF_DIR) apply -input=false -auto-approve -var cluster_name=$(GITOPS_CLUSTER)
 	@echo "Waiting for ArgoCD to sync waves: monitoring/loki -> alloy/crds -> operator -> workloads ..."
-	@for i in $$(seq 1 60); do $(GK) -n argocd get application webapp-workloads >/dev/null 2>&1 && break; sleep 5; done
+	@for i in $$(seq 1 180); do $(GK) -n argocd get application webapp-workloads >/dev/null 2>&1 && break; sleep 5; done
 	$(GK) -n argocd wait application/webapp-workloads --for=jsonpath='{.status.health.status}'=Healthy --timeout=900s
 	$(GK) -n demo wait webapp/podinfo --for=condition=Ready --timeout=300s
 	@$(MAKE) --no-print-directory gitops-status
