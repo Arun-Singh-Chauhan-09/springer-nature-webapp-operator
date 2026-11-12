@@ -1,0 +1,13 @@
+# checkov: security/compliance scan of infra/ (run: make tf-sec).
+# Any check skipped here must have a written reason.
+framework:
+  - terraform
+compact: true
+quiet: true
+skip-check:
+  # CKV_TF_1 wants every module sourced from git by commit SHA. Our external modules are
+  # the verified terraform-aws-modules from the Terraform Registry, pinned to EXACT
+  # versions in infra/envs/eks/main.tf; upgrades go through reviewed PRs (e.g. Renovate).
+  # Registry sources do not support commit hashes, and switching to git sources would
+  # lose the registry's version metadata without a meaningful security gain here.
+  - CKV_TF_1

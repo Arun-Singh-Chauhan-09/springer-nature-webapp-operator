@@ -1,0 +1,6 @@
+# Copy to backend.hcl (git-ignored) and fill in your own bucket.
+bucket       = "my-tf-state-bucket"
+key          = "webapp-operator/eks/terraform.tfstate"
+region       = "eu-central-1"
+encrypt      = true
+use_lockfile = true # S3 native locking, no DynamoDB table needed (Terraform >= 1.10)

@@ -104,6 +104,25 @@ Design choices:
 - **Sync waves that actually wait.** ArgoCD no longer health-checks `Application` resources, so the module adds a Lua health check for them, plus one for `WebApp` (Ready → Healthy, Degraded → Degraded). A broken release shows up red in the ArgoCD UI, not only in `kubectl`.
 - **Immutable image promotion.** CI publishes `ghcr.io/arun-singh-chauhan-09/webapp-operator:sha-<commit>` on every push to `main`; `make pin-image` pins `gitops/operator/kustomization.yaml` to that tag, and the Git commit is the deployment. Rollback = `git revert`.
 
+## EKS (Terraform, code only)
+
+`infra/envs/eks` builds the same platform on Amazon EKS: VPC across 3 AZs, EKS v1.34 with
+access entries and a restricted public endpoint, managed AL2023 nodes, the EBS CSI driver
+with **Pod Identity**, an encrypted gp3 default StorageClass, and then the **same
+`platform-bootstrap` module** as kind. ArgoCD on EKS deploys the same `gitops/apps`.
+
+**Not applied, deliberately:** it would cost about $260/month (~$0.35/hour). It is validated
+on every push with `terraform validate`, `tflint` (AWS ruleset) and `checkov`. Costs, apply
+steps, the teardown order (PVC volumes before the VPC) and known production gaps are in
+[infra/envs/eks/README.md](infra/envs/eks/README.md).
+
+```bash
+make tf-check   # fmt + validate, kind and eks
+make tf-lint    # tflint
+make tf-sec     # checkov
+make eks-plan   # real plan, needs AWS credentials
+```
+
 ## Observability
 
 The platform team owns the monitoring of the platform, so it ships with the operator
@@ -147,6 +166,7 @@ gitops/apps/            ArgoCD app-of-apps: child Applications with sync waves
 gitops/operator/        kustomize overlay: operator image pinned to a GHCR sha tag
 infra/modules/          Terraform module platform-bootstrap (ArgoCD + root app)
 infra/envs/kind/        Terraform env: kind cluster + bootstrap
+infra/envs/eks/         Terraform env: VPC + EKS + EBS CSI + bootstrap (code only, CI-validated)
 apps/                   developer-side WebApps
 drills/                 failure drill scripts
 hack/                   kind config
@@ -157,7 +177,7 @@ ROADMAP.md              phases and feedback backlog
 
 ## Roadmap
 
-Phases 1 (operator core), 2 (Terraform + ArgoCD GitOps) and 3 (observability) are done. Next: CloudNativePG + an admission webhook based on my MEng thesis on the security of Kubernetes manifests, and EKS. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
+Phases 1 (operator core), 2 (Terraform + ArgoCD GitOps), 3 (observability) and 5 (EKS as validated code) are done. Next: an admission webhook based on my MEng thesis on the security of Kubernetes manifests, and CloudNativePG. See [ROADMAP.md](ROADMAP.md) and [docs/architecture.md](docs/architecture.md).
 
 ## Author
 

@@ -60,7 +60,9 @@ GITOPS_KCTX    := kind-$(GITOPS_CLUSTER)
 GK             := kubectl --context $(GITOPS_KCTX)
 TF_DIR         := infra/envs/kind
 TF             ?= terraform
-TF_IMG         ?= hashicorp/terraform:1.9
+TF_IMG         ?= hashicorp/terraform:1.10
+TFLINT_IMG     ?= ghcr.io/terraform-linters/tflint:v0.55.0
+CHECKOV_IMG    ?= bridgecrew/checkov:latest
 PIN_SHA        ?= $(shell git rev-parse --short=7 HEAD)
 
 gitops-up: ## Terraform creates kind + ArgoCD; ArgoCD deploys CRD -> operator -> apps from Git
@@ -95,9 +97,22 @@ pin-image: ## Pin the GitOps operator image to a CI-built commit (PIN_SHA=<7-cha
 	sed -i 's/^\(\s*newTag:\).*/\1 sha-$(PIN_SHA)/' gitops/operator/kustomization.yaml
 	@grep newTag gitops/operator/kustomization.yaml
 
-tf-check: ## terraform fmt + validate (in a container, no local install needed)
-	docker run --rm --user $$(id -u):$$(id -g) -e TF_DATA_DIR=/tmp/tf -e HOME=/tmp -v "$(CURDIR)":/w -w /w --entrypoint sh $(TF_IMG) -c \
-	  "terraform fmt -check -recursive infra && cd $(TF_DIR) && terraform init -backend=false -input=false >/dev/null && terraform validate"
+tf-check: ## terraform fmt + validate for every env (kind, eks), in a container
+	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v "$(CURDIR)":/w -w /w --entrypoint sh $(TF_IMG) -c \
+	  'terraform fmt -check -recursive infra && for d in infra/envs/kind infra/envs/eks; do echo "== $$d"; \
+	   (cd $$d && TF_DATA_DIR=/tmp/tf-$$(basename $$d) terraform init -backend=false -input=false >/dev/null \
+	    && TF_DATA_DIR=/tmp/tf-$$(basename $$d) terraform validate) || exit 1; done'
+
+tf-lint: ## tflint (Terraform + AWS rulesets) on all Terraform code
+	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v "$(CURDIR)":/w -w /w --entrypoint sh $(TFLINT_IMG) -c \
+	  'tflint --init --config=/w/.tflint.hcl && tflint --recursive --config=/w/.tflint.hcl'
+
+tf-sec: ## checkov security scan of infra/ (skips must be justified in .checkov.yaml)
+	docker run --rm -v "$(CURDIR)":/w -w /w $(CHECKOV_IMG) -d infra --config-file .checkov.yaml
+
+eks-plan: ## terraform plan for EKS (needs AWS credentials, infra/envs/eks/backend.hcl and terraform.tfvars)
+	$(TF) -chdir=infra/envs/eks init -input=false -backend-config=backend.hcl
+	$(TF) -chdir=infra/envs/eks plan -input=false -out=tfplan
 
 gitops-down: ## Destroy the GitOps cluster with Terraform
 	$(TF) -chdir=$(TF_DIR) destroy -input=false -auto-approve -var cluster_name=$(GITOPS_CLUSTER)
@@ -120,4 +135,4 @@ drill-all: ## Run all drills and print a PASS/FAIL report
 down: ## Delete the kind cluster
 	kind delete cluster --name $(CLUSTER)
 
-.PHONY: help tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills grafana-ui alerts pin-image tf-check gitops-down drill-d1 drill-d2 drill-d4 drill-d5 drill-d6 drill-all down
+.PHONY: help tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills grafana-ui alerts pin-image tf-check tf-lint tf-sec eks-plan gitops-down drill-d1 drill-d2 drill-d4 drill-d5 drill-d6 drill-all down

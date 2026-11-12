@@ -37,12 +37,16 @@ jobs:
           ./kubeconform -strict -summary -ignore-missing-schemas -ignore-filename-pattern '.*\.json$' config/ apps/ gitops/
 
   terraform:
-    name: Terraform fmt + validate
+    name: Terraform fmt, validate, tflint, checkov
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - name: terraform fmt + validate (kind env + bootstrap module)
+      - name: terraform fmt + validate (kind + eks envs, bootstrap module)
         run: make tf-check
+      - name: tflint (Terraform + AWS rulesets)
+        run: make tf-lint
+      - name: checkov security scan
+        run: make tf-sec
 
   image:
     name: Publish operator image (GHCR)

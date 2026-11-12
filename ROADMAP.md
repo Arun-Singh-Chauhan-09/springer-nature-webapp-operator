@@ -8,7 +8,7 @@ Built in phases. Every phase ends in a working, demoable state.
 | 2 | Terraform (`infra/envs/kind`, shared `modules/platform-bootstrap`) + ArgoCD app-of-apps with sync waves; drill D5 (drift → ArgoCD revert) | ✅ done (kind) |
 | 3 | Observability: kube-prometheus-stack, Loki, Grafana "Platform Health" dashboard, Alertmanager rules (`WebAppNotReady`, `OperatorDown`, `ReconcileErrorsHigh`); alert drill D6 asserts they reach Alertmanager | ✅ done (kind) |
 | 4 | `needsDatabase` → CloudNativePG Postgres cluster + finalizer; validating/mutating admission webhook with the security checks from my MEng thesis; drill D3 (DB restore) | planned |
-| 5 | `infra/envs/eks` (VPC + EKS + EBS CSI) validated in CI with tflint/checkov; one real EKS run; recorded demo | planned |
+| 5 | `infra/envs/eks` (VPC + EKS v21 + EBS CSI via Pod Identity + gp3 default StorageClass), reusing `platform-bootstrap`; validated in CI with validate/tflint/checkov. Not applied, to avoid ~$260/month; cost, apply and teardown steps in `infra/envs/eks/README.md` | ✅ code done, not applied |
 
 ## Feedback loop (platform as a product)
 
