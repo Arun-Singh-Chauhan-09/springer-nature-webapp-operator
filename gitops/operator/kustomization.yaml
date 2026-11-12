@@ -11,4 +11,4 @@ resources:
 images:
   - name: webapp-operator
     newName: ghcr.io/arun-singh-chauhan-09/webapp-operator
-    newTag: sha-2d51dfb
+    newTag: sha-856e110
