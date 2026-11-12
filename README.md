@@ -95,6 +95,8 @@ make alerts          # alerts currently active in Alertmanager
 make gitops-down     # terraform destroy
 ```
 
+![ArgoCD: all platform apps Synced and Healthy](docs/argocd-apps.png)
+
 Design choices:
 
 - **Terraform stops at the bootstrap.** It owns the cluster, ArgoCD and the root app only. Workloads are owned by Git, so there is one source of truth per layer and no Terraform/ArgoCD fight over the same objects.
@@ -113,6 +115,8 @@ The platform team owns the monitoring of the platform, so it ships with the oper
 | Alerts | `WebAppNotReady` (1m), `OperatorDown` (1m), `ReconcileErrorsHigh` (5m), each with a runbook hint in the description |
 | Logs | Grafana Alloy reads pod logs through the Kubernetes API (no hostPath) and pushes them to Loki |
 | Dashboard | Grafana "Platform Health": WebApps ready/not ready, operator up, firing alerts, desired vs ready replicas, phase per app, reconcile rate and p95 latency, operator + app logs |
+
+![Grafana Platform Health dashboard](docs/grafana-platform-health.png)
 
 Alerts are only trusted if they are tested: drill D6 breaks a release and stops the operator,
 and asserts that each alert reaches Alertmanager and resolves again.
