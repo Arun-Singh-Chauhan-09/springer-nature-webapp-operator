@@ -44,6 +44,9 @@ jobs:
       - name: terraform fmt + validate (kind + eks envs, bootstrap module)
         run: make tf-check
       - name: tflint (Terraform + AWS rulesets)
+        # token avoids GitHub's anonymous rate limit when tflint --init downloads the AWS ruleset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make tf-lint
       - name: checkov security scan
         run: make tf-sec

@@ -104,7 +104,7 @@ tf-check: ## terraform fmt + validate for every env (kind, eks), in a container
 	    && TF_DATA_DIR=/tmp/tf-$$(basename $$d) terraform validate) || exit 1; done'
 
 tf-lint: ## tflint (Terraform + AWS rulesets) on all Terraform code
-	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v "$(CURDIR)":/w -w /w --entrypoint sh $(TFLINT_IMG) -c \
+	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -e GITHUB_TOKEN -v "$(CURDIR)":/w -w /w --entrypoint sh $(TFLINT_IMG) -c \
 	  'tflint --init --config=/w/.tflint.hcl && tflint --recursive --config=/w/.tflint.hcl'
 
 tf-sec: ## checkov security scan of infra/ (skips must be justified in .checkov.yaml)
