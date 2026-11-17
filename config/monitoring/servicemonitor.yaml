@@ -12,6 +12,13 @@ spec:
       app.kubernetes.io/name: webapp-operator
   endpoints:
     - port: metrics
+      # HTTPS + ServiceAccount token: the operator checks the token with TokenReview and
+      # SubjectAccessReview (GET /metrics). The cert is self-signed, so verification is skipped;
+      # see README "Security" for the cert-manager follow-up.
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        insecureSkipVerify: true
       # The operator exports its own "namespace" label (the WebApp's namespace).
       # Without this, Prometheus overwrites it with the scrape target's namespace
       # (webapp-system) and renames ours to exported_namespace.

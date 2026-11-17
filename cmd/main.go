@@ -2,6 +2,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"os"
 
@@ -11,6 +12,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -28,11 +30,13 @@ func init() {
 
 func main() {
 	var metricsAddr, probeAddr string
-	var leaderElect, enableWebhooks, enableDatabases bool
+	var leaderElect, enableWebhooks, enableDatabases, secureMetrics, enableHTTP2 bool
 	var dbBackupStore, dbStorageSize string
 	var webhookPort int
 	var certDir string
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address the Prometheus metrics endpoint binds to.")
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8443", "Address the Prometheus metrics endpoint binds to.")
+	flag.BoolVar(&secureMetrics, "metrics-secure", true, "Serve metrics over HTTPS and require a Kubernetes token allowed to GET /metrics.")
+	flag.BoolVar(&enableHTTP2, "enable-http2", false, "Allow HTTP/2 on the metrics and webhook servers. Off by default because of CVE-2023-44487 (HTTP/2 Rapid Reset).")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address the health probe endpoint binds to.")
 	flag.BoolVar(&leaderElect, "leader-elect", false, "Enable leader election so only one replica reconciles at a time.")
 	flag.BoolVar(&enableWebhooks, "enable-webhooks", false, "Serve the workload policy admission webhook (needs a TLS cert, e.g. from cert-manager).")
@@ -48,15 +52,35 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
 
+	// HTTP/2 is disabled unless asked for: the Rapid Reset (CVE-2023-44487) and
+	// stream-cancellation attacks hit Go's HTTP/2 server, and neither Prometheus
+	// nor the API server needs HTTP/2 to talk to us.
+	var tlsOpts []func(*tls.Config)
+	if !enableHTTP2 {
+		tlsOpts = append(tlsOpts, func(c *tls.Config) { c.NextProtos = []string{"http/1.1"} })
+	}
+
+	// Metrics are served over HTTPS (self-signed cert generated in memory) and every
+	// scrape must present a ServiceAccount token that RBAC allows to GET /metrics,
+	// checked with TokenReview + SubjectAccessReview.
+	metricsOpts := metricsserver.Options{
+		BindAddress:   metricsAddr,
+		SecureServing: secureMetrics,
+		TLSOpts:       tlsOpts,
+	}
+	if secureMetrics {
+		metricsOpts.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
 	mgrOpts := ctrl.Options{
 		Scheme:                 scheme,
-		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
+		Metrics:                metricsOpts,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         leaderElect,
 		LeaderElectionID:       "webapp-operator.platform.example.com",
 	}
 	if enableWebhooks {
-		mgrOpts.WebhookServer = webhook.NewServer(webhook.Options{Port: webhookPort, CertDir: certDir})
+		mgrOpts.WebhookServer = webhook.NewServer(webhook.Options{Port: webhookPort, CertDir: certDir, TLSOpts: tlsOpts})
 	}
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
 	if err != nil {

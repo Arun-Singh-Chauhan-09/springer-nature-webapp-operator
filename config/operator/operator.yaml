@@ -38,6 +38,13 @@ rules:
   - apiGroups: [postgresql.cnpg.io]
     resources: [clusters]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Secure metrics: check the caller's token (TokenReview) and its right to GET /metrics (SubjectAccessReview)
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -88,7 +95,9 @@ metadata:
   labels:
     app.kubernetes.io/name: webapp-operator
 spec:
-  replicas: 1
+  # 2 replicas: leader election lets only one reconcile, but both serve the admission
+  # webhook, so a drain or crash of one pod never blocks deploys (failurePolicy: Fail).
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: webapp-operator
@@ -99,6 +108,16 @@ spec:
     spec:
       serviceAccountName: webapp-operator
       terminationGracePeriodSeconds: 10
+      affinity:
+        podAntiAffinity:
+          # Spread across nodes where possible; "preferred" so a 1-node kind cluster still schedules both.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: webapp-operator
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -110,7 +129,7 @@ spec:
           args: [--leader-elect]
           ports:
             - name: metrics
-              containerPort: 8080
+              containerPort: 8443
             - name: health
               containerPort: 8081
           livenessProbe:
@@ -127,6 +146,24 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          volumeMounts:
+            # writable scratch space on a read-only root filesystem
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: webapp-operator
+  namespace: webapp-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webapp-operator
 ---
 apiVersion: v1
 kind: Service
@@ -140,5 +177,35 @@ spec:
     app.kubernetes.io/name: webapp-operator
   ports:
     - name: metrics
-      port: 8080
+      port: 8443
       targetPort: metrics
+---
+# Whoever may scrape /metrics (Prometheus' own ClusterRole already allows it).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: webapp-operator-metrics-reader
+rules:
+  - nonResourceURLs: [/metrics]
+    verbs: [get]
+---
+# Used by `make metrics` to read the endpoint by hand.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metrics-reader
+  namespace: webapp-system
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: webapp-operator-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: webapp-operator-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: metrics-reader
+    namespace: webapp-system

@@ -3,7 +3,7 @@ SHELL := /usr/bin/env bash
 
 CLUSTER ?= webapp-demo
 IMG     ?= webapp-operator:dev
-GO_IMG  ?= golang:1.24
+GO_IMG  ?= golang:1.24@sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804
 KCTX    := kind-$(CLUSTER)
 KUBECTL ?= kubectl --context $(KCTX)
 
@@ -51,8 +51,12 @@ logs: ## Tail operator logs
 	$(KUBECTL) -n webapp-system logs deploy/webapp-operator -f
 
 metrics: ## Print the operator's webapp_* metrics
-	$(KUBECTL) -n webapp-system port-forward svc/webapp-operator-metrics 18080:8080 >/dev/null 2>&1 & \
-	PF=$$!; sleep 2; curl -s localhost:18080/metrics | grep -E '^(webapp_|controller_runtime_reconcile_total)'; kill $$PF
+	@TOKEN=$$($(KUBECTL) -n webapp-system create token metrics-reader --duration=10m); \
+	$(KUBECTL) -n webapp-system port-forward svc/webapp-operator-metrics 18443:8443 >/dev/null 2>&1 & \
+	PF=$$!; sleep 2; \
+	echo "without token: HTTP $$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:18443/metrics) (expected 401)"; \
+	curl -sk -H "Authorization: Bearer $$TOKEN" https://localhost:18443/metrics | grep -E '^(webapp_|controller_runtime_reconcile_total)'; \
+	kill $$PF
 
 ##@ GitOps (Terraform + ArgoCD)
 GITOPS_CLUSTER ?= webapp-gitops
@@ -60,9 +64,9 @@ GITOPS_KCTX    := kind-$(GITOPS_CLUSTER)
 GK             := kubectl --context $(GITOPS_KCTX)
 TF_DIR         := infra/envs/kind
 TF             ?= terraform
-TF_IMG         ?= hashicorp/terraform:1.10
-TFLINT_IMG     ?= ghcr.io/terraform-linters/tflint:v0.55.0
-CHECKOV_IMG    ?= bridgecrew/checkov:latest
+TF_IMG         ?= hashicorp/terraform:1.10@sha256:679ac5e095bf550bc726742cd12efa6050f0913080df479fdabfeb202953af28
+TFLINT_IMG     ?= ghcr.io/terraform-linters/tflint:v0.55.0@sha256:0402443a7d3d2940f4e4c6ef700618e03631b7faf1591aaa1f040cfe217a3566
+CHECKOV_IMG    ?= bridgecrew/checkov:3.4.5@sha256:122602cf32cc72286155d39f1f234b7b594818f7b8d7fdf490701620e521368b
 PIN_SHA        ?= $(shell git rev-parse --short=7 HEAD)
 
 gitops-up: ## Terraform creates kind + ArgoCD; ArgoCD deploys CRD -> operator -> apps from Git
@@ -96,6 +100,9 @@ alerts: ## List alerts currently active in Alertmanager
 pin-image: ## Pin the GitOps operator image to a CI-built commit (PIN_SHA=<7-char sha>, default HEAD)
 	sed -i 's/^\(\s*newTag:\).*/\1 sha-$(PIN_SHA)/' gitops/operator/kustomization.yaml
 	@grep newTag gitops/operator/kustomization.yaml
+
+pin-supply-chain: ## Pin GitHub Actions to commit SHAs and images to digests (needs git + docker)
+	python3 hack/pin-supply-chain.py
 
 tf-check: ## terraform fmt + validate for every env (kind, eks), in a container
 	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v "$(CURDIR)":/w -w /w --entrypoint sh $(TF_IMG) -c \
@@ -139,4 +146,4 @@ drill-all: ## Run all drills and print a PASS/FAIL report
 down: ## Delete the kind cluster
 	kind delete cluster --name $(CLUSTER)
 
-.PHONY: help tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills grafana-ui alerts pin-image tf-check tf-lint tf-sec eks-plan gitops-down drill-d1 drill-d2 drill-d3 drill-d4 drill-d5 drill-d6 drill-d7 drill-all down
+.PHONY: help pin-supply-chain tidy test build cluster deploy sample up status logs metrics gitops-up gitops-status argocd-ui gitops-drills grafana-ui alerts pin-image tf-check tf-lint tf-sec eks-plan gitops-down drill-d1 drill-d2 drill-d3 drill-d4 drill-d5 drill-d6 drill-d7 drill-all down

@@ -256,6 +256,27 @@ and asserts that each alert reaches Alertmanager and resolves again.
 
 D1, D2 and D4 run against `make up`; D1, D3, D5, D6 and D7 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D1/D2/D4 also run in CI on a kind cluster.
 
+## Security
+
+How the platform protects itself, not just the apps it runs.
+
+| Area | What is in place |
+|---|---|
+| App workloads | Non-root, seccomp `RuntimeDefault`, all capabilities dropped, no privilege escalation, no SA token, limits; namespaces enforce Pod Security `restricted` |
+| Admission | CRD schema + CEL (pinned images, port range) and the Trivy-KSV webhook (deny / warn per namespace), TLS from cert-manager |
+| Operator | Least-privilege RBAC with **no access to Secrets** (`DATABASE_URL` is a `secretKeyRef`); distroless, non-root, read-only root filesystem |
+| Webhook availability | 2 replicas (leader election for reconciling, both serve admission), PodDisruptionBudget, anti-affinity: a node drain never blocks deploys under `failurePolicy: Fail` |
+| Metrics | HTTPS only; every scrape needs a ServiceAccount token allowed to `GET /metrics` (TokenReview + SubjectAccessReview). `make metrics` shows a tokenless request getting 401 |
+| HTTP/2 | Off on the metrics and webhook servers (CVE-2023-44487 Rapid Reset); `--enable-http2` to opt in |
+| Supply chain | Actions pinned to commit SHAs, base and tool images pinned to digests (`make pin-supply-chain`), Dependabot keeps them current; `go mod verify` in the build and a CI check that `go.mod`/`go.sum` are tidy; operator images tagged by commit |
+| Cloud (EKS) | API endpoint limited to admin CIDRs (0.0.0.0/0 rejected by validation), nodes in private subnets, Pod Identity instead of static keys, encrypted gp3 volumes |
+
+**Known gaps, deliberately left for a local demo** (what I would change before production):
+
+- MinIO and backup credentials are committed (`local-demo-only-change-me`), Grafana uses `admin/admin`, Argo CD runs `server.insecure`: on EKS these become External Secrets, S3 via Pod Identity, SSO and TLS ingress.
+- The metrics certificate is self-signed, so Prometheus skips verification; next step is a cert-manager certificate like the webhook's.
+- No NetworkPolicies yet (each app's Postgres should accept only its own app); no image signing (cosign) or SBOM / image scan for the operator image.
+
 ## Repository layout
 
 ```
@@ -277,7 +298,7 @@ infra/envs/kind/        Terraform env: kind cluster + bootstrap
 infra/envs/eks/         Terraform env: VPC + EKS + EBS CSI + bootstrap (code only, CI-validated)
 apps/                   developer-side WebApps
 drills/                 failure drill scripts
-hack/                   kind config
+hack/                   kind config, supply-chain pinning script
 .github/workflows/      CI: gofmt, vet, tests, kubeconform, terraform validate, GHCR image, kind e2e + drills
 docs/architecture.md    target architecture and design decisions
 ROADMAP.md              phases and feedback backlog

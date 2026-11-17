@@ -27,7 +27,7 @@ autosync() {       # autosync on|off
 
 restore() {
   k -n "$NS" patch webapp "$APP" --type merge -p "{\"spec\":{\"image\":\"$GOOD_IMAGE\"}}" >/dev/null 2>&1 || true
-  k -n "$OP_NS" scale deployment/webapp-operator --replicas=1 >/dev/null 2>&1 || true
+  k -n "$OP_NS" scale deployment/webapp-operator --replicas=2 >/dev/null 2>&1 || true
   autosync on
   info "Auto-sync restored on: ${APPS[*]}"
 }
@@ -54,7 +54,7 @@ k -n "$OP_NS" scale deployment/webapp-operator --replicas=0 >/dev/null
 wait_for 240 "Alertmanager received OperatorDown" alert_active OperatorDown \
   || fail "OperatorDown did not reach Alertmanager within 240s"
 info "Bringing the operator back"
-k -n "$OP_NS" scale deployment/webapp-operator --replicas=1 >/dev/null
+k -n "$OP_NS" scale deployment/webapp-operator --replicas=2 >/dev/null
 k -n "$OP_NS" rollout status deployment/webapp-operator --timeout=120s >/dev/null
 wait_for 240 "OperatorDown resolved" alert_gone OperatorDown || fail "OperatorDown did not resolve"
 

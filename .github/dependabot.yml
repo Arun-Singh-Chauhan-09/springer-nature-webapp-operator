@@ -1,0 +1,18 @@
+# Keeps every pin fresh: Actions (pinned by commit SHA), Go modules and base images
+# (pinned by digest). Small weekly PRs instead of silent "latest" drift.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      actions: {patterns: ["*"]}
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      k8s:
+        patterns: ["k8s.io/*", "sigs.k8s.io/*"]
+  - package-ecosystem: docker
+    directory: /
+    schedule: {interval: weekly}

@@ -9,3 +9,4 @@ bin/
 *.tfstate.*
 backend.hcl
 *.tfvars
+__pycache__/

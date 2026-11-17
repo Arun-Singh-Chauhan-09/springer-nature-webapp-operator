@@ -13,12 +13,12 @@ jobs:
     name: Lint & unit tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: "1.24"
-      - name: Resolve modules
-        run: go mod tidy
+      - name: go.mod / go.sum are tidy and committed
+        run: go mod tidy && git diff --exit-code go.mod go.sum
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: go vet
@@ -30,7 +30,7 @@ jobs:
     name: Validate manifests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: kubeconform
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
@@ -40,7 +40,7 @@ jobs:
     name: Terraform fmt, validate, tflint, checkov
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: terraform fmt + validate (kind + eks envs, bootstrap module)
         run: make tf-check
       - name: tflint (Terraform + AWS rulesets)
@@ -60,7 +60,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Build and push ghcr.io/<owner>/webapp-operator:sha-<short> and :main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -81,9 +81,9 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [unit, manifests]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Create kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
         with:
           cluster_name: webapp-demo
           config: hack/kind-config.yaml

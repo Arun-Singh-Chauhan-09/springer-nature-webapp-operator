@@ -6,7 +6,7 @@
 # observability phase.
 source "$(dirname "$0")/lib.sh"
 
-restore() { k -n "$OP_NS" scale deployment webapp-operator --replicas=1 >/dev/null; }
+restore() { k -n "$OP_NS" scale deployment webapp-operator --replicas=2 >/dev/null; }
 trap restore EXIT
 
 require_ready
