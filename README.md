@@ -27,6 +27,55 @@ NAME      IMAGE                                DESIRED   READY   PHASE   AGE
 podinfo   ghcr.io/stefanprodan/podinfo:6.7.1   2         2       Ready   1m
 ```
 
+## Architecture
+
+```mermaid
+flowchart TB
+    dev["<b>Developer</b><br/>6-line WebApp in apps/"]
+    repo[("<b>GitHub repo</b><br/>single source of truth")]
+    ci["<b>GitHub Actions</b><br/>go test · kubeconform<br/>terraform validate · tflint · checkov<br/>image → GHCR (sha tag)<br/>kind e2e + drills"]
+    tf["<b>Terraform</b><br/>kind or EKS cluster<br/>+ module platform-bootstrap"]
+
+    subgraph cluster["Kubernetes cluster (kind / EKS)"]
+        argo["<b>Argo CD</b><br/>app-of-apps, sync waves,<br/>self-heal"]
+        api["<b>Kubernetes API server</b><br/>CRD + CEL validation"]
+        hook["<b>Admission webhook</b> (Go)<br/>Trivy KSV checks from MEng thesis<br/>deny / warn per namespace"]
+        op["<b>WebApp operator</b> (Go)<br/>reconcile · secure defaults<br/>status conditions · metrics"]
+        subgraph workload["Per WebApp"]
+            dep["Deployment + Service"]
+            db["CloudNativePG<br/>Postgres cluster"]
+        end
+        store[("MinIO / S3<br/>backups")]
+        subgraph obs["Observability"]
+            prom["Prometheus"]
+            am["Alertmanager"]
+            loki["Loki ← Alloy"]
+            graf["Grafana<br/>Platform Health"]
+        end
+    end
+
+    dev -->|git push| repo
+    repo --> ci
+    tf -->|installs| argo
+    repo -->|pulls manifests| argo
+    argo -->|applies| api
+    api -->|validate| hook
+    api -->|watch| op
+    op -->|creates & owns| dep
+    op -->|needsDatabase| db
+    db -->|WAL + backups| store
+    op -.->|metrics| prom
+    prom --> am
+    prom --> graf
+    loki --> graf
+    op -.->|status: Ready / Degraded| dev
+
+    classDef core fill:#1f4e79,color:#fff,stroke:#1f4e79
+    class op,hook core
+```
+
+A developer pushes a WebApp to Git; Argo CD applies it; the admission webhook checks it; the operator turns it into a Deployment, Service and (optionally) a Postgres database, and reports status back. Prometheus, Loki and Grafana watch the platform, Alertmanager pages on failures. Details and design decisions: [docs/architecture.md](docs/architecture.md).
+
 ## What the platform adds for free
 
 | The developer writes | The platform adds |
