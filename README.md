@@ -4,14 +4,9 @@
 
 > Personal portfolio project built for a Springer Nature Platform Engineer application. Not affiliated with or endorsed by Springer Nature.
 
-
 A small internal-developer-platform built around a Kubernetes operator in Go.
 Product teams write a six-line `WebApp`; the platform turns it into a secure,
 observable Deployment and Service, reports status back, and heals itself.
-
-> Built as a platform-engineering showcase for the Springer Nature
-> Platform Engineer role (Engineering Enablement): platform as a product,
-> self-service, Kubernetes operators, observability and reliability drills.
 
 ```yaml
 apiVersion: platform.example.com/v1
@@ -42,7 +37,7 @@ podinfo   ghcr.io/stefanprodan/podinfo:6.7.1   2         2       Ready   1m
 | (nothing) | CPU/memory requests and limits, non-root, seccomp `RuntimeDefault`, no privilege escalation, all capabilities dropped, no SA token mount |
 | (nothing) | `app.kubernetes.io/*` labels for observability |
 | (nothing) | Status: `Progressing` → `Ready`, or `Degraded` with the reason (e.g. `ImagePullBackOff`) |
-| `needsDatabase` | Reported as a condition today; CloudNativePG provisioning on the roadmap |
+| `needsDatabase: true` | A CloudNativePG Postgres cluster with continuous backups; `DATABASE_URL` injected once it is ready |
 
 ## Quick start
 
@@ -62,7 +57,6 @@ Try the guardrails:
 
 ```bash
 kubectl apply -f apps/examples/rejected-latest-tag.yaml   # rejected: ':latest' not allowed
-kubectl apply -f apps/examples/with-database.yaml         # DatabaseReady=Unknown condition
 kubectl -n demo describe webapp podinfo                   # conditions + events
 make metrics                                              # webapp_ready, webapp_phase, ...
 ```
@@ -205,12 +199,11 @@ and asserts that each alert reaches Alertmanager and resolves again.
 |---|---|---|
 | D1 self-heal | `kubectl delete deployment podinfo` | Operator recreates it; WebApp back to Ready |
 | D2 bad release | Image changed to a tag that does not exist | WebApp `Degraded` with reason `ImagePullBackOff`, old pods keep serving; rollback → Ready |
-| D4 operator down | Operator scaled to 0, Deployment deleted | Nothing heals while it's down (proves the operator is the healer); recovers on restart |
-
-| D5 GitOps drift | `kubectl patch` the WebApp to 5 replicas by hand | ArgoCD selfHeal reverts it to the Git value; WebApp back to Ready |
 | D3 database restore | write a marker row, take a backup, restore it into a new cluster | Backup completes; restored cluster becomes Ready; marker row present |
-| D7 workload policy | `kubectl apply --dry-run=server` an unsafe, a hardened and a sloppy Deployment | Unsafe denied with KSV IDs; hardened admitted clean; sloppy admitted with KSV011/018/014 warnings |
+| D4 operator down | Operator scaled to 0, Deployment deleted | Nothing heals while it's down (proves the operator is the healer); recovers on restart |
+| D5 GitOps drift | `kubectl patch` the WebApp to 5 replicas by hand | ArgoCD selfHeal reverts it to the Git value; WebApp back to Ready |
 | D6 alerting | ArgoCD auto-sync paused; bad image, then operator scaled to 0 | `WebAppNotReady` and `OperatorDown` reach Alertmanager, then resolve after recovery; auto-sync restored |
+| D7 workload policy | `kubectl apply --dry-run=server` an unsafe, a hardened and a sloppy Deployment | Unsafe denied with KSV IDs; hardened admitted clean; sloppy admitted with KSV011/018/014 warnings |
 
 D1, D2 and D4 run against `make up`; D1, D3, D5, D6 and D7 against `make gitops-up` (there, ArgoCD would also undo D2/D4's manual changes, which is the point of D5). D1/D2/D4 also run in CI on a kind cluster.
 
