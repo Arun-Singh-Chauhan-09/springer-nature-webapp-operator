@@ -1,5 +1,10 @@
 # Keeps every pin fresh: Actions (pinned by commit SHA), Go modules and base images
 # (pinned by digest). Small weekly PRs instead of silent "latest" drift.
+#
+# Minor bumps of the Kubernetes libraries, Prometheus client and Go toolchain are
+# ignored here on purpose: they move together and need code changes, so they are done
+# as one planned upgrade (k8s.io + controller-runtime + client_golang + Go) by hand.
+# Patch releases (security fixes) still come through automatically.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -13,6 +18,16 @@ updates:
     groups:
       k8s:
         patterns: ["k8s.io/*", "sigs.k8s.io/*"]
+    ignore:
+      - dependency-name: "k8s.io/*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "sigs.k8s.io/*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "github.com/prometheus/client_golang"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
   - package-ecosystem: docker
     directory: /
     schedule: {interval: weekly}
+    ignore:
+      - dependency-name: "golang"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
