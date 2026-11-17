@@ -1,7 +1,7 @@
 # Base images are pinned by tag AND digest (hack/pin-supply-chain.sh); Dependabot bumps them.
 
 # Build stage: Go is only needed inside Docker, not on your machine.
-FROM golang:1.24@sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804 AS build
+FROM golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80 AS build
 WORKDIR /src
 # go.mod/go.sum are committed and checked in CI, so the build never changes dependencies:
 # download exactly what go.sum lists and verify the checksums.
